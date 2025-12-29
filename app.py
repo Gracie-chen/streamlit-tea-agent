@@ -271,29 +271,44 @@ if 'loaded' not in st.session_state:
         st.session_state.prompt_config = DEFAULT_PROMPT_CONFIG.copy()
     
     st.session_state.loaded = True
-
 with st.sidebar:
     st.header("⚙️ 系统配置")
-    aliyun_key = st.text_input("阿里云 Key", value="sk-9387cb66fcaf4c9f80766c4aad4e50c1", type="password")
-    deepseek_key = st.text_input("DeepSeek Key", value="sk-66d19c36002641c5a339c33e9ef22989", type="password")
-    
+    st.markdown("**🔐 API 配置（默认使用环境变量）**")
+
+    # 先从环境变量 / secrets 读
+    env_aliyun_key = os.getenv("ALIYUN_API_KEY") or st.secrets.get("ALIYUN_API_KEY", "")
+    env_deepseek_key = os.getenv("DEEPSEEK_API_KEY") or st.secrets.get("DEEPSEEK_API_KEY", "")
+
+    # UI 仍然保留，但默认值是环境变量
+    aliyun_key = st.text_input(
+        "阿里云 Key（可覆盖）",
+        value=env_aliyun_key,
+        type="password"
+    )
+
+    deepseek_key = st.text_input(
+        "DeepSeek Key（可覆盖）",
+        value=env_deepseek_key,
+        type="password"
+    )
+
+    if not aliyun_key or not deepseek_key:
+        st.warning("⚠️ 当前未配置 API Key，系统将无法运行")
+        st.stop()
+
     st.markdown("---")
     st.markdown("**🧠 模型设定**")
-    
-    # 自动获取微调后的模型 ID
+
     ft_status = DataManager.load_ft_status()
-    default_model = "deepseek-chat" # 默认使用通用模型
-    if ft_status and ft_status.get('status') == 'succeeded' and 'fine_tuned_model' in ft_status:
-        default_model = ft_status['fine_tuned_model']
-        st.toast(f"已自动加载微调模型: {default_model}", icon="🎉")
-        
+    default_model = "deepseek-chat"
+    if ft_status and ft_status.get("status") == "succeeded":
+        default_model = ft_status.get("fine_tuned_model", default_model)
+        st.toast(f"已加载微调模型: {default_model}", icon="🎉")
+
     model_id = st.text_input("Model ID", value=default_model)
-    
-    embedder = None
-    client = None
-    if aliyun_key and deepseek_key:
-        embedder = AliyunEmbedder(aliyun_key)
-        client = OpenAI(api_key=deepseek_key, base_url="https://api.deepseek.com")
+
+    embedder = AliyunEmbedder(aliyun_key)
+    client = OpenAI(api_key=deepseek_key, base_url="https://api.deepseek.com")
 
 st.markdown('<div class="main-title">🍵 茶饮六因子 AI 评分器 Pro</div>', unsafe_allow_html=True)
 st.markdown('<div class="slogan">“一片叶子落入水中，改变了水的味道...”</div>', unsafe_allow_html=True)
@@ -507,3 +522,4 @@ with tab3:
             with open(PATHS['prompt'], 'w') as f: json.dump(new_cfg, f, ensure_ascii=False)
 
             st.success("Prompt 已保存！"); time.sleep(1); st.rerun()
+
