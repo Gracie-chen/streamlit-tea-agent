@@ -309,7 +309,69 @@ with st.sidebar:
 
     embedder = AliyunEmbedder(aliyun_key)
     client = OpenAI(api_key=deepseek_key, base_url="https://api.deepseek.com")
-
+    
+    st.markdown("---")
+    st.markdown("**📚 RAG 知识库管理**")
+    
+    # 显示当前 RAG 状态
+    st.caption(f"知识库片段: {len(st.session_state.kb[1])} 条")
+    st.caption(f"判例库案例: {len(st.session_state.cases[1])} 条")
+    
+    if st.button("📤 导出 RAG 数据"):
+        # 创建压缩包
+        import zipfile, shutil
+        
+        # 创建临时目录
+        temp_dir = Path("./temp_export")
+        temp_dir.mkdir(exist_ok=True)
+        
+        # 复制所有 RAG 文件
+        for key, path in PATHS.items():
+            if path.exists():
+                shutil.copy2(path, temp_dir / path.name)
+        
+        # 创建 zip 文件
+        zip_path = Path("./rag_export.zip")
+        with zipfile.ZipFile(zip_path, 'w') as zipf:
+            for file in temp_dir.iterdir():
+                zipf.write(file, file.name)
+        
+        # 提供下载
+        with open(zip_path, 'rb') as f:
+            st.download_button(
+                label="⬇️ 下载 RAG 数据包",
+                data=f,
+                file_name="tea_rag_data.zip",
+                mime="application/zip"
+            )
+        
+        # 清理临时文件
+        shutil.rmtree(temp_dir)
+        zip_path.unlink()
+    
+    if st.button("📥 导入 RAG 数据"):
+        uploaded_zip = st.file_uploader("上传 RAG 数据包", type=['zip'])
+        if uploaded_zip:
+            with st.spinner("导入中..."):
+                # 解压到临时目录
+                import tempfile, zipfile
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    zip_path = Path(tmpdir) / "uploaded.zip"
+                    with open(zip_path, 'wb') as f:
+                        f.write(uploaded_zip.getvalue())
+                    
+                    # 解压
+                    with zipfile.ZipFile(zip_path, 'r') as zipf:
+                        zipf.extractall(DATA_DIR)
+                    
+                    # 重新加载数据
+                    kb_idx, kb_data = DataManager.load(PATHS['kb_index'], PATHS['kb_chunks'])
+                    case_idx, case_data = DataManager.load(PATHS['case_index'], PATHS['case_data'], is_json=True)
+                    st.session_state.kb = (kb_idx, kb_data)
+                    st.session_state.cases = (case_idx, case_data)
+                    
+                    st.success("✅ RAG 数据导入成功！")
+                    st.rerun()
 st.markdown('<div class="main-title">🍵 茶饮六因子 AI 评分器 Pro</div>', unsafe_allow_html=True)
 st.markdown('<div class="slogan">“一片叶子落入水中，改变了水的味道...”</div>', unsafe_allow_html=True)
 
@@ -522,4 +584,5 @@ with tab3:
             with open(PATHS['prompt'], 'w') as f: json.dump(new_cfg, f, ensure_ascii=False)
 
             st.success("Prompt 已保存！"); time.sleep(1); st.rerun()
+
 
