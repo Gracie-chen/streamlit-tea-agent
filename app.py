@@ -156,10 +156,6 @@ def llm_normalize_user_input(raw_query: str, client: OpenAI) -> str:
 # 🔧 NEW 2: LangChain + DashScope Embedding（统一入口）
 # =========================================================
 def get_langchain_embedder():
-    """
-    Embedding 统一通过 LangChain 封装
-    DashScope 仍然是实际 embedding 服务提供方
-    """
     aliyun_key = os.getenv("ALIYUN_API_KEY")
     if not aliyun_key:
         raise ValueError("ALIYUN_API_KEY not found in environment variables")
@@ -168,7 +164,6 @@ def get_langchain_embedder():
         model="text-embedding-v4",
         dashscope_api_key=aliyun_key
     )
-
 
 st.set_page_config(layout="wide")
 st.title("🍵 Tea Agent")
@@ -1038,5 +1033,6 @@ with tab3:
             with open(PATHS['prompt'], 'w') as f: json.dump(new_cfg, f, ensure_ascii=False)
 
             st.success("Prompt 已保存！"); time.sleep(1); st.rerun()
+
 
 
