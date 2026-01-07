@@ -1,9 +1,12 @@
 streamlit
-openai
-langchain
-faiss-cpu
-pandas
 numpy
+faiss-cpu
+
+openai
+dashscope
+
+langchain>=0.1.16
+langchain-community>=0.0.38
+
 PyPDF2
-Dashscope
 python-docx
