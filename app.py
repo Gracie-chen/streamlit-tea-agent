@@ -15,7 +15,7 @@ import dashscope
 from dashscope import TextEmbedding
 from openai import OpenAI
 from docx import Document
-from langchain_community.embeddings import DashScopeEmbeddings
+
 # ==========================================
 # 0. 基础配置与持久化路径
 # ==========================================
@@ -128,17 +128,19 @@ class AliyunEmbedder:
         except: pass
         return np.zeros((len(texts), 1024), dtype="float32")
 
+
+
 # =========================================================
-# 🔧 NEW 1: LLM 参与“用户输入筛选 / 规范化”
+# 🔧 NEW: LLM 参与“用户输入筛选 / 规范化”
 # =========================================================
 def llm_normalize_user_input(raw_query: str, client: OpenAI) -> str:
     """
     使用 LLM 对用户输入做语义规范化 / 去噪
-    ❗ 不是生成答案，不涉及 prompt 修改
+    不涉及总体prompt 修改
     """
     system_prompt = (
-        "You are an assistant that rewrites user input into a concise, "
-        "fact-focused query suitable for information retrieval."
+        "你是一个专业的查询规范化助手，专门为茶饮感官评价系统服务。你的任务是将用户输入的任意形式的茶饮评价描述，规范化为简洁、清晰、适合信息检索的查询语句。",
+        "处理原则：1.提取用户描述中涉及香气、口感、风味、余韵等感官要素的关键词和短语；2.过滤掉过于主观的感叹词、重复描述、无关的感性词语；3.将口语化、碎片化的描述转化为逻辑连贯的茶饮评价专业表述;4.确保所有与茶品优雅性、辨识度、协调性、饱和度、持久性、苦涩度相关或有一定关系的术语。"
     )
 
     resp = client.chat.completions.create(
@@ -151,90 +153,6 @@ def llm_normalize_user_input(raw_query: str, client: OpenAI) -> str:
     )
     return resp.choices[0].message.content.strip()
 
-
-# =========================================================
-# 🔧 NEW 2: LangChain + DashScope Embedding（统一入口）
-# =========================================================
-def get_langchain_embedder():
-    aliyun_key = os.getenv("ALIYUN_API_KEY")
-    if not aliyun_key:
-        raise ValueError("ALIYUN_API_KEY not found in environment variables")
-
-    return DashScopeEmbeddings(
-        model="text-embedding-v4",
-        dashscope_api_key=aliyun_key
-    )
-
-st.set_page_config(layout="wide")
-st.title("🍵 Tea Agent")
-
-with st.sidebar:
-    st.header("⚙️ 系统配置")
-
-    # 🔧 NEW: 默认从环境变量读取，但仍允许手填覆盖
-    aliyun_key = st.text_input(
-        "阿里云 Key",
-        value=os.getenv("ALIYUN_API_KEY", ""),
-        type="password"
-    )
-
-    deepseek_key = st.text_input(
-        "DeepSeek Key",
-        value=os.getenv("DEEPSEEK_API_KEY", ""),
-        type="password"
-    )
-
-    st.markdown("---")
-    st.markdown("🧠 模型设定")
-
-    # ✅ 原有逻辑：自动加载微调模型
-    ft_status = DataManager.load_ft_status()
-    default_model = "deepseek-chat"
-    if ft_status and ft_status.get("status") == "succeeded":
-        default_model = ft_status.get("fine_tuned_model", default_model)
-        st.toast(f"已加载微调模型: {default_model}", icon="🎉")
-
-    model_id = st.text_input("Model ID", value=default_model)
-
-
-# =========================================================
-# Client & Embedder 初始化
-# =========================================================
-client = None
-embedder = None
-
-if deepseek_key:
-    client = OpenAI(
-        api_key=deepseek_key,
-        base_url="https://api.deepseek.com"
-    )
-
-if aliyun_key:
-    os.environ["ALIYUN_API_KEY"] = aliyun_key
-    embedder = get_langchain_embedder()
-
-
-# =========================================================
-# 🔧 NEW 3: 用户输入 → LLM 规范化 → Embedding → RAG
-# =========================================================
-user_query = st.text_area("请输入你的评价 / 改进需求")
-
-if st.button("开始分析") and user_query and client and embedder:
-
-    with st.spinner("🔍 处理中..."):
-        # ① LLM 输入规范化
-        refined_query = llm_normalize_user_input(user_query, client)
-
-        # ② 向量化（LangChain → DashScope）
-        query_vec = embedder.embed_query(refined_query)
-
-        # ③ 原有 FAISS 检索逻辑（不改）
-        D, I = vector_index.search(
-            np.array([query_vec]).astype("float32"),
-            k=5
-        )
-
-        retrieved_cases = [case_texts[i] for i in I[0]]
 
 # 默认 Prompt
 DEFAULT_PROMPT_CONFIG = {
@@ -509,7 +427,7 @@ SEED_CASES = [
 # 2. 逻辑函数
 # ==========================================
 
-# 最核心***的评分函数；流程：用户文本 → 向量检索 → RAG + 判例拼 Prompt → 调用模型 → 解析 JSON
+# 最核心的评分函数；流程：用户文本 → 向量检索 → RAG + 判例拼 Prompt → 调用模型 → 解析 JSON
 def run_scoring(text, kb_res, case_res, prompt_cfg, embedder, client, model_id): # 输入：茶评、知识库、案例库、prompt配置等
     vec = embedder.encode([text]) # 文本通过阿里云embedder转为向量
     ctx_txt, hits = "（无手册资料）", [] # RAG初始
@@ -651,7 +569,22 @@ with st.sidebar:
     else:
         # ✅ API Key 存在，视为“调用可用”
         st.success("✅ API 调用成功")
- 
+
+    st.markdown("---")
+    st.markdown("**🧠 模型设定**")
+
+    # 固定模型
+    model_name = "deepseek-chat"
+    st.markdown(f"**当前模型：** `{model_name}`")
+
+    # 如存在微调模型，仅展示提示（不允许切换）
+    ft_status = DataManager.load_ft_status()
+    if ft_status and ft_status.get("status") == "succeeded":
+        ft_model = ft_status.get("fine_tuned_model")
+        st.info(f"🎉 已检测到微调模型：`{ft_model}`（当前未启用）")
+
+    model_id = model_name   # model_id 和 model_name在此处（deepseek）是一样的 model_id kept for future extension (e.g., switching to fine-tuned model), currently fixed.
+
     embedder = AliyunEmbedder(aliyun_key)
     client = OpenAI(api_key=deepseek_key, base_url="https://api.deepseek.com")
     bootstrap_seed_cases_if_empty(embedder)
@@ -1018,8 +951,3 @@ with tab3:
             with open(PATHS['prompt'], 'w') as f: json.dump(new_cfg, f, ensure_ascii=False)
 
             st.success("Prompt 已保存！"); time.sleep(1); st.rerun()
-
-
-
-
-
