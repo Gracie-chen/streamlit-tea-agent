@@ -652,12 +652,6 @@ with st.sidebar:
         # ✅ API Key 存在，视为“调用可用”
         st.success("✅ API 调用成功")
 
-    st.markdown("---")
-    st.markdown("**🧠 模型设定**")
-
-    # 固定模型
-    model_name = "deepseek-chat"
-    st.markdown(f"**当前模型：** `{model_name}`")
 
     # 如存在微调模型，仅展示提示（不允许切换）
     ft_status = DataManager.load_ft_status()
@@ -1033,6 +1027,7 @@ with tab3:
             with open(PATHS['prompt'], 'w') as f: json.dump(new_cfg, f, ensure_ascii=False)
 
             st.success("Prompt 已保存！"); time.sleep(1); st.rerun()
+
 
 
 
