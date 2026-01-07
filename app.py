@@ -844,7 +844,7 @@ with tab3:
         if st.button("🚀 将现有判例转为微调数据"):
             if len(st.session_state.cases[1]) > 0:
                 count = 0
-                prompt_cfg = st.session_state.
+                prompt_cfg = st.session_state
                 for case in st.session_state.cases[1]:
                     if DataManager.append_to_finetune(
                         case["text"],
@@ -971,4 +971,5 @@ with tab3:
             with open(PATHS['prompt'], 'w') as f: json.dump(new_cfg, f, ensure_ascii=False)
 
             st.success("Prompt 已保存！"); time.sleep(1); st.rerun()
+
 
