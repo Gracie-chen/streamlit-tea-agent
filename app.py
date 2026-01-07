@@ -651,16 +651,7 @@ with st.sidebar:
     else:
         # ✅ API Key 存在，视为“调用可用”
         st.success("✅ API 调用成功")
-
-
-    # 如存在微调模型，仅展示提示（不允许切换）
-    ft_status = DataManager.load_ft_status()
-    if ft_status and ft_status.get("status") == "succeeded":
-        ft_model = ft_status.get("fine_tuned_model")
-        st.info(f"🎉 已检测到微调模型：`{ft_model}`（当前未启用）")
-
-    model_id = model_name   # model_id 和 model_name在此处（deepseek）是一样的 model_id kept for future extension (e.g., switching to fine-tuned model), currently fixed.
-
+ 
     embedder = AliyunEmbedder(aliyun_key)
     client = OpenAI(api_key=deepseek_key, base_url="https://api.deepseek.com")
     bootstrap_seed_cases_if_empty(embedder)
@@ -1027,6 +1018,7 @@ with tab3:
             with open(PATHS['prompt'], 'w') as f: json.dump(new_cfg, f, ensure_ascii=False)
 
             st.success("Prompt 已保存！"); time.sleep(1); st.rerun()
+
 
 
 
