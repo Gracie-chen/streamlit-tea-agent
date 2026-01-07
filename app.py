@@ -837,7 +837,27 @@ with tab3:
         # 修复点：先定义 case_count
         case_count = len(st.session_state.cases[1])
         st.info(f"💾 当前判例: {case_count} 条")
-
+# 在tab3中添加一个按钮
+    with c2:
+        st.markdown("#### 📥 数据迁移")
+    
+        if st.button("🚀 将现有判例转为微调数据"):
+            if len(st.session_state.cases[1]) > 0:
+                count = 0
+                prompt_cfg = st.session_state.
+                for case in st.session_state.cases[1]:
+                    if DataManager.append_to_finetune(
+                        case["text"],
+                        case["scores"],
+                        prompt_cfg.get('system_template', ''),
+                        prompt_cfg.get('user_template', '')
+                    ):
+                        count += 1
+            
+                st.success(f"成功导入 {count} 条判例到微调数据！")
+                st.rerun()
+            else:
+                st.warning("判例库为空")
         # === 微调控制面板 ===
         st.markdown("#### ☁️ 云端微调控制台")
         
@@ -951,3 +971,4 @@ with tab3:
             with open(PATHS['prompt'], 'w') as f: json.dump(new_cfg, f, ensure_ascii=False)
 
             st.success("Prompt 已保存！"); time.sleep(1); st.rerun()
+
