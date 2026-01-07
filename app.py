@@ -60,6 +60,7 @@ st.markdown("""
 
 class DataManager:
     @staticmethod
+    # 将FAISS和原始数据一起存盘 NOTE: FAISS index only stores vectors, raw texts/cases must be persisted separately.
     def save(index, data, idx_path, data_path, is_json=False):
         if index: faiss.write_index(index, str(idx_path))
         with open(data_path, "w" if is_json else "wb") as f:
@@ -67,6 +68,7 @@ class DataManager:
             else: pickle.dump(data, f)
 
     @staticmethod
+    # 把“已确认判例”变成微调样本 
     def append_to_finetune(case_text, scores, system_prompt, user_template):
         try:
             user_content = user_template.format(product_desc=case_text, context_text="", case_text="")
@@ -84,6 +86,7 @@ class DataManager:
         except: return False
 
     @staticmethod
+    # 从磁盘恢复FAISS和数据
     def load(idx_path, data_path, is_json=False):
         if idx_path.exists() and data_path.exists():
             try:
@@ -92,7 +95,7 @@ class DataManager:
                     data = json.load(f) if is_json else pickle.load(f)
                 return index, data
             except: pass
-        return faiss.IndexFlatL2(1024), []
+        return faiss.IndexFlatL2(1024), [] # 这里括号内的1024是由于text-embedding是1024维的，如果更换embedding模型则需要一起调整。
     
     @staticmethod
     def save_ft_status(job_id, status, fine_tuned_model=None):
@@ -109,6 +112,7 @@ class DataManager:
             except: pass
         return None
 
+# 一层薄封装，把embedding API 包成一个统一的 encode() 方法
 class AliyunEmbedder:
     def __init__(self, api_key):
         self.model_name = "text-embedding-v4"
@@ -124,44 +128,247 @@ class AliyunEmbedder:
         except: pass
         return np.zeros((len(texts), 1024), dtype="float32")
 
+# =========================================================
+# 🔧 NEW 1: LLM 参与“用户输入筛选 / 规范化”
+# =========================================================
+def llm_normalize_user_input(raw_query: str, client: OpenAI) -> str:
+    """
+    使用 LLM 对用户输入做语义规范化 / 去噪
+    ❗ 不是生成答案，不涉及 prompt 修改
+    """
+    system_prompt = (
+        "You are an assistant that rewrites user input into a concise, "
+        "fact-focused query suitable for information retrieval."
+    )
+
+    resp = client.chat.completions.create(
+        model="deepseek-chat",
+        temperature=0,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": raw_query}
+        ]
+    )
+    return resp.choices[0].message.content.strip()
+
+
+# =========================================================
+# 🔧 NEW 2: LangChain + DashScope Embedding（统一入口）
+# =========================================================
+def get_langchain_embedder():
+    """
+    Embedding 统一通过 LangChain 封装
+    DashScope 仍然是实际 embedding 服务提供方
+    """
+    aliyun_key = os.getenv("ALIYUN_API_KEY")
+    if not aliyun_key:
+        raise ValueError("ALIYUN_API_KEY not found in environment variables")
+
+    return DashScopeEmbeddings(
+        model="text-embedding-v4",
+        dashscope_api_key=aliyun_key
+    )
+
+
+st.set_page_config(layout="wide")
+st.title("🍵 Tea Agent")
+
+with st.sidebar:
+    st.header("⚙️ 系统配置")
+
+    # 🔧 NEW: 默认从环境变量读取，但仍允许手填覆盖
+    aliyun_key = st.text_input(
+        "阿里云 Key",
+        value=os.getenv("ALIYUN_API_KEY", ""),
+        type="password"
+    )
+
+    deepseek_key = st.text_input(
+        "DeepSeek Key",
+        value=os.getenv("DEEPSEEK_API_KEY", ""),
+        type="password"
+    )
+
+    st.markdown("---")
+    st.markdown("🧠 模型设定")
+
+    # ✅ 原有逻辑：自动加载微调模型
+    ft_status = DataManager.load_ft_status()
+    default_model = "deepseek-chat"
+    if ft_status and ft_status.get("status") == "succeeded":
+        default_model = ft_status.get("fine_tuned_model", default_model)
+        st.toast(f"已加载微调模型: {default_model}", icon="🎉")
+
+    model_id = st.text_input("Model ID", value=default_model)
+
+
+# =========================================================
+# Client & Embedder 初始化
+# =========================================================
+client = None
+embedder = None
+
+if deepseek_key:
+    client = OpenAI(
+        api_key=deepseek_key,
+        base_url="https://api.deepseek.com"
+    )
+
+if aliyun_key:
+    os.environ["ALIYUN_API_KEY"] = aliyun_key
+    embedder = get_langchain_embedder()
+
+
+# =========================================================
+# 🔧 NEW 3: 用户输入 → LLM 规范化 → Embedding → RAG
+# =========================================================
+user_query = st.text_area("请输入你的评价 / 改进需求")
+
+if st.button("开始分析") and user_query and client and embedder:
+
+    with st.spinner("🔍 处理中..."):
+        # ① LLM 输入规范化
+        refined_query = llm_normalize_user_input(user_query, client)
+
+        # ② 向量化（LangChain → DashScope）
+        query_vec = embedder.embed_query(refined_query)
+
+        # ③ 原有 FAISS 检索逻辑（不改）
+        D, I = vector_index.search(
+            np.array([query_vec]).astype("float32"),
+            k=5
+        )
+
+        retrieved_cases = [case_texts[i] for i in I[0]]
+
 # 默认 Prompt
 DEFAULT_PROMPT_CONFIG = {
     "system_template": """你是一名资深的茶饮产品研发与感官分析专家，精通《中国茶感官品鉴手册》等已上传的权威文献及手册。
 请基于给定的产品描述、参考资料和相似历史判例，严格按照"罗马测评法2.0"进行专业评分。
-请以“推理—行动—观察”的方式完成任务。
-【工作协议（ReAct）】
-你在回答时，需在内部遵循如下循环（无需对用户展示步骤标签）：
-1.Reasoning（推理）
-- 判断产品描述中最关键的感官风险点（尤其是苦涩度转化）
-- 明确哪些六因子需要被重点评估
-2.Action（行动）
-- 必须参考提供的【手册资料】与【历史判例】RAG
-- 如果判例与当前产品相似，应提取其对应因子得分作为校准依据
-- 不得完全忽略任何一个信息源
-3.Observation（吸收信息）
-- 综合参考信息，调整原始判断
-- 若参考信息不足，需明确降低置信度并反映在评分中
-4.Final Decision
-- 严格基于六因子模型输出评分与建议
-- 禁止跳过推理直接给分
 
-【评分模型】
-三段六因子：前香(优雅/辨识)、中味(协调/饱和)、后韵(持久/苦涩)。
+====================
+一、评分方法（必须严格遵守）
+====================
 
-【思维链要求】
-1. 先判断注意事项，如苦涩度的转化是化开回甘还是锁喉焦苦。
-2. 结合香气和口感给予客观分数（0-9分）。
-3. 针对每个因子给出具体的依据原因、【鉴赏建议】（高分）或【改进建议】（低分）。
+罗马测评法2.0
+三段（段位）与六因子如下（每个因子 0–9 分，整数）：
 
-{model_description}""",
+【前段：香】
+1) ①优雅性：香气引发的愉悦感
+2) ②辨识度：香气可被识别记忆
+
+【中段：味】
+3) ③协调性：茶汤内含物的融合度
+4) ④饱和度：整体茶汤的浓厚度
+
+【后段：韵】
+5) ⑤持久性：茶汤在口腔中的余韵
+6) ⑥苦涩度：苦味、收敛拉扯感
+
+重要：你只能评这六项；不要添加任何额外维度（例如产地、工艺、树龄、品牌、价格、包装等）。
+
+====================
+二、信息来源约束（非常重要）
+====================
+
+1) 评分只能来自“用户输入的茶评文本”中明确表达或可直接对应的描述。
+2) 不能使用外部常识、茶类刻板印象、产地/品种推断、或任何“脑补联想”来补齐信息。
+   - 即使用户说的是“铁观音/龙井/普洱”，也不允许因为茶名而默认香气或滋味特征。
+3) 若某因子在茶评中“未提及或描述极其模糊”，你仍必须给出 0–9 分，但必须：
+   - 在该因子的 evidence 写“未提及/证据不足”
+   - 将 confidence 标为 low
+   - 分数采用“中性保守分 4”（除非用户明确表达负面/正面到足以改变分数）
+4) 不要写长篇感想；不要扩写用户没有说过的细节。
+
+====================
+三、0–9 分通用标尺（用于六因子）
+====================
+
+采用“质量/体验好坏”的方向：分数越高，体验越好（包括苦涩度也是“越舒适越高分”，不是“越苦越高分”）。
+
+通用锚点（按用户措辞强度做保守映射）：
+- 9：极佳/惊艳/非常高级/几乎无可挑剔（用户表达非常强烈的肯定）
+- 8：优秀/很喜欢/明显高水平
+- 7：很好/清晰明显的优点
+- 6：好/满意/整体不错
+- 5：中等偏上/还可以
+- 4：一般/中性/证据不足时的默认保守分
+- 3：偏弱/有明显不足
+- 2：较差/缺点突出
+- 1：很差/几乎不可接受
+- 0：严重缺陷/明显不适/难以下咽（用户表达极端负面）
+
+【苦涩度特别说明（必须执行）】
+- 9：几乎不苦不涩，或苦涩极轻微且很快化开，口腔无拉扯收敛不适
+- 6–7：有轻微苦/涩但可接受，化得快，不影响整体舒适
+- 4–5：苦/涩存在且较明显，但仍能喝，舒适度一般
+- 0–3：苦涩强烈、锁喉、拉扯感重、收敛明显、难受（按用户描述强度给低分）
+
+====================
+四、因子解释口径（用于抓取证据与打分）
+====================
+
+你需要从茶评里提取与每个因子“直接相关”的语句作为证据（尽量短，最多 2 段原句/短语）。
+
+①优雅性（香气愉悦感）关注：
+- 正向：清雅、幽雅、舒服、干净、细腻、愉悦、高级、柔和不刺鼻、闻着很享受
+- 负向：杂、闷、刺鼻、霉、馊、焦、烟、青臭、压迫感、不舒服
+
+②辨识度（香气可识别与记忆点）关注：
+- 正向：香型具体可指认（如兰花香/蜜香/果香/木质香等）、特征鲜明、有记忆点、一闻就知道
+- 负向：香气平、糊、淡、说不清、不突出、混杂难辨
+
+③协调性（融合度/平衡度）关注：
+- 正向：协调、平衡、圆润、融合好、不突兀、前后统一、顺口
+- 负向：割裂、失衡、某味突兀（酸/苦/涩/甜腻/青味等顶出来）、冲突感
+
+④饱和度（茶汤浓厚度/充实度）关注：
+- 正向：浓厚、饱满、厚度、稠滑、胶质感、物质感强、丰富
+- 负向：寡淡、水薄、空、轻飘、没内容、像水
+
+⑤持久性（余韵/回甘/余香/生津持续）关注：
+- 正向：回甘持久、余香久、喉韵长、口腔留香、生津持续、咽下后还在
+- 负向：散得快、余味短、回甘一闪而过、喝完没感觉
+
+⑥苦涩度（苦味/收敛/拉扯感的舒适度）关注：
+- 高分：不苦不涩、微苦即化、涩不拉扯、很顺
+- 低分：苦涩重、锁喉、刮口、拉扯强、收敛明显且久
+
+====================
+五、工作流程（必须按步骤执行）
+====================
+
+Step 1：通读用户茶评，仅提取与六因子相关的句子/短语（不要扩写）。
+Step 2：对每个因子：
+- 找证据（evidence）
+- 给 0–9 整数分（score）
+- 写 2–3 句详细的解释（reason），解释必须能被证据直接支撑
+- 给出置信度：high / medium / low
+Step 3：计算段位小结（可计算但不得替代六因子）：
+- 前段（香）= (优雅性 + 辨识度) / 2
+- 中段（味）= (协调性 + 饱和度) / 2
+- 后段（韵）= (持久性 + 苦涩度) / 2
+并输出 overall（总分 sum=6项之和，avg=平均分）。
+Step 4：列出“信息不足项”（哪些因子 evidence=未提及/证据不足））。
+Step 5：列出帮助提升茶饮评分的建议（suggestion）。
+
+====================
+六、严格禁止事项
+====================
+
+- 禁止出现：根据茶类/产地/工艺“推测”香气滋味；禁止“想象”没写的体验。
+- 禁止把“耐泡次数/价格/包装/品牌故事”当作任何因子的证据。
+- 禁止输出非 JSON 内容。
+- 禁止输出你的思考过程（只给结果 JSON）。
+""",
     
     "user_template": """【待评分产品】
 {product_desc}
 
-【参考标准（手册）】
+【参考标准（知识库）】
 {context_text}
 
-【历史判例参考（Few-Shot）】
+【历史判例参考（案例库）】
 {case_text}
 
 请严格输出以下JSON格式（不含Markdown）：
@@ -178,22 +385,146 @@ DEFAULT_PROMPT_CONFIG = {
 }}"""
 }
 
+# 内置判例，AI生成，可能后续需要根据实际情况精细评分。
+SEED_CASES = [
+    {
+        "text": "干茶有清淡的花香，闻着干净舒服；入口柔和顺滑，整体偏淡，回甘不明显，几乎不苦不涩。",
+        "tags": "内置-清淡顺口",
+        "scores": {
+            "优雅性": {"score": 7, "comment": "香气清雅干净，闻着舒服。", "suggestion": "保持香气洁净度，避免闷味。"},
+            "辨识度": {"score": 5, "comment": "花香存在但不算鲜明。", "suggestion": "突出一个明确主香型。"},
+            "协调性": {"score": 7, "comment": "入口顺滑，整体融合度较好。", "suggestion": "维持平衡，避免甜感单独跳出。"},
+            "饱和度": {"score": 4, "comment": "茶汤偏淡，厚度一般。", "suggestion": "增强茶汤物质感。"},
+            "持久性": {"score": 4, "comment": "余韵较短，回甘不明显。", "suggestion": "提升回甘与留香持续。"},
+            "苦涩度": {"score": 8, "comment": "几乎不苦不涩，舒适度高。", "suggestion": "保持低涩感。"},
+        },
+    },
+    {
+        "text": "香气有明显蜜甜香，闻着讨喜；入口甜润，但中段略显单薄，回甘来得快但持续不久。",
+        "tags": "内置-甜润但偏薄",
+        "scores": {
+            "优雅性": {"score": 7, "comment": "蜜甜香让人愉悦。", "suggestion": "避免香气过甜显腻。"},
+            "辨识度": {"score": 7, "comment": "蜜甜香特征清晰。", "suggestion": "增强层次感。"},
+            "协调性": {"score": 6, "comment": "甜感突出但尚算协调。", "suggestion": "让甜与茶味更融合。"},
+            "饱和度": {"score": 4, "comment": "中段略显单薄。", "suggestion": "提升茶汤厚度。"},
+            "持久性": {"score": 5, "comment": "回甘来得快但不持久。", "suggestion": "增强后段延续性。"},
+            "苦涩度": {"score": 7, "comment": "轻微苦感，可接受。", "suggestion": "控制轻苦的峰值。"},
+        },
+    },
+    {
+        "text": "香气平淡，说不出具体香型；入口正常，没有明显缺点，也没有记忆点，整体偏中性。",
+        "tags": "内置-中性无突出",
+        "scores": {
+            "优雅性": {"score": 4, "comment": "香气平淡，愉悦感一般。", "suggestion": "提升香气质量。"},
+            "辨识度": {"score": 4, "comment": "香气缺乏记忆点。", "suggestion": "强化可识别香型。"},
+            "协调性": {"score": 5, "comment": "整体无明显冲突。", "suggestion": "提升整体完成度。"},
+            "饱和度": {"score": 4, "comment": "茶汤偏薄。", "suggestion": "增加物质感。"},
+            "持久性": {"score": 4, "comment": "喝完后余味较短。", "suggestion": "增强余韵。"},
+            "苦涩度": {"score": 6, "comment": "轻微苦涩但不影响饮用。", "suggestion": "让苦涩更快化开。"},
+        },
+    },
+    {
+        "text": "香气浓郁，有明显焙火与焦糖气息；入口厚实，但苦涩顶得较快，喉部有明显收敛。",
+        "tags": "内置-浓厚苦涩",
+        "scores": {
+            "优雅性": {"score": 4, "comment": "焙火重，愉悦感一般。", "suggestion": "降低焦糊与烟火感。"},
+            "辨识度": {"score": 8, "comment": "焙火与焦糖特征鲜明。", "suggestion": "控制香气集中度。"},
+            "协调性": {"score": 4, "comment": "浓厚与苦涩略显割裂。", "suggestion": "控制苦涩峰值。"},
+            "饱和度": {"score": 8, "comment": "茶汤浓厚有物质感。", "suggestion": "在厚度基础上提升顺滑度。"},
+            "持久性": {"score": 5, "comment": "余味尚可但不算干净。", "suggestion": "改善后段舒适度。"},
+            "苦涩度": {"score": 3, "comment": "苦涩明显，收敛感强。", "suggestion": "降低涩感与喉部刺激。"},
+        },
+    },
+    {
+        "text": "香气清爽，带一点果香；入口轻快，酸甜平衡，但茶味偏轻，整体显得清秀。",
+        "tags": "内置-清爽果香",
+        "scores": {
+            "优雅性": {"score": 7, "comment": "果香清爽，闻着舒服。", "suggestion": "保持清新而不过分张扬。"},
+            "辨识度": {"score": 6, "comment": "果香可辨但不算强烈。", "suggestion": "强化果香特征。"},
+            "协调性": {"score": 7, "comment": "酸甜与茶味融合较好。", "suggestion": "防止酸感突出。"},
+            "饱和度": {"score": 4, "comment": "茶汤偏轻。", "suggestion": "增强中段厚度。"},
+            "持久性": {"score": 5, "comment": "余味干净但不持久。", "suggestion": "延长回甘时间。"},
+            "苦涩度": {"score": 7, "comment": "几乎无涩，整体顺。", "suggestion": "维持舒适度。"},
+        },
+    },
+    {
+        "text": "香气带青味，略显生；入口有明显涩感，舌面收紧，化得慢。",
+        "tags": "内置-青涩明显",
+        "scores": {
+            "优雅性": {"score": 3, "comment": "青味明显，愉悦感偏低。", "suggestion": "减少生青气。"},
+            "辨识度": {"score": 6, "comment": "青味特征明显。", "suggestion": "转化为更成熟香型。"},
+            "协调性": {"score": 3, "comment": "涩感突出，破坏平衡。", "suggestion": "降低涩感强度。"},
+            "饱和度": {"score": 5, "comment": "茶汤有一定存在感。", "suggestion": "让厚度与顺滑同步。"},
+            "持久性": {"score": 4, "comment": "涩感停留时间较长。", "suggestion": "让后段更干净。"},
+            "苦涩度": {"score": 2, "comment": "涩感强，舒适度低。", "suggestion": "显著改善涩感。"},
+        },
+    },
+    {
+        "text": "香气干净克制，入口顺滑，整体平衡，没有明显短板，但也不算惊艳。",
+        "tags": "内置-均衡型",
+        "scores": {
+            "优雅性": {"score": 6, "comment": "香气干净，较为舒服。", "suggestion": "增加香气层次。"},
+            "辨识度": {"score": 5, "comment": "香气不突出。", "suggestion": "强化记忆点。"},
+            "协调性": {"score": 7, "comment": "整体平衡度较好。", "suggestion": "保持协调性。"},
+            "饱和度": {"score": 5, "comment": "茶汤中等厚度。", "suggestion": "略微提升物质感。"},
+            "持久性": {"score": 5, "comment": "余味中等。", "suggestion": "延长后段体验。"},
+            "苦涩度": {"score": 7, "comment": "苦涩轻微且可接受。", "suggestion": "维持顺口特性。"},
+        },
+    },
+    {
+        "text": "香气略闷，不够通透；入口厚，但后段发苦，整体显得压迫。",
+        "tags": "内置-闷厚苦",
+        "scores": {
+            "优雅性": {"score": 3, "comment": "香气闷，不够愉悦。", "suggestion": "改善香气通透度。"},
+            "辨识度": {"score": 5, "comment": "香气存在但不清晰。", "suggestion": "减少杂味。"},
+            "协调性": {"score": 3, "comment": "厚与苦不协调。", "suggestion": "让口感更圆润。"},
+            "饱和度": {"score": 7, "comment": "茶汤较厚。", "suggestion": "在厚度中提升舒适度。"},
+            "持久性": {"score": 4, "comment": "苦感停留时间较长。", "suggestion": "让后段更干净。"},
+            "苦涩度": {"score": 3, "comment": "苦感明显，略锁喉。", "suggestion": "降低刺激感。"},
+        },
+    },
+    {
+        "text": "香气柔和细腻，入口温润，茶汤不厚但很顺，整体喝着舒服。",
+        "tags": "内置-细腻顺滑",
+        "scores": {
+            "优雅性": {"score": 8, "comment": "香气柔和细腻，愉悦感高。", "suggestion": "保持细腻度。"},
+            "辨识度": {"score": 5, "comment": "香气偏内敛。", "suggestion": "略增强辨识度。"},
+            "协调性": {"score": 8, "comment": "整体非常顺。", "suggestion": "维持口感完整性。"},
+            "饱和度": {"score": 5, "comment": "茶汤不厚但不空。", "suggestion": "在顺滑基础上增加厚度。"},
+            "持久性": {"score": 6, "comment": "余韵干净，尚可。", "suggestion": "延长余香。"},
+            "苦涩度": {"score": 8, "comment": "几乎无苦涩。", "suggestion": "维持低涩表现。"},
+        },
+    },
+    {
+        "text": "香气淡而不杂；入口平稳，整体没有明显问题，但略显平淡。",
+        "tags": "内置-基础参考",
+        "scores": {
+            "优雅性": {"score": 5, "comment": "香气干净但平淡。", "suggestion": "提升香气层次。"},
+            "辨识度": {"score": 4, "comment": "缺乏明确特征。", "suggestion": "增加记忆点。"},
+            "协调性": {"score": 6, "comment": "整体尚算协调。", "suggestion": "提升完成度。"},
+            "饱和度": {"score": 4, "comment": "茶汤偏薄。", "suggestion": "增强物质感。"},
+            "持久性": {"score": 4, "comment": "余味短。", "suggestion": "增强后段。"},
+            "苦涩度": {"score": 6, "comment": "轻微苦感，可接受。", "suggestion": "让苦感更快化开。"},
+        },
+    },
+]
+
+
 # ==========================================
 # 2. 逻辑函数
 # ==========================================
 
-def get_model_desc(): return "优雅性/辨识度/协调性/饱和度/持久性/苦涩度，关注各阶段感官表现。"
-
-def run_scoring(text, kb_res, case_res, prompt_cfg, embedder, client, model_id):
-    vec = embedder.encode([text])
-    ctx_txt, hits = "（无手册资料）", []
-    if kb_res[0].ntotal > 0:
+# 最核心***的评分函数；流程：用户文本 → 向量检索 → RAG + 判例拼 Prompt → 调用模型 → 解析 JSON
+def run_scoring(text, kb_res, case_res, prompt_cfg, embedder, client, model_id): # 输入：茶评、知识库、案例库、prompt配置等
+    vec = embedder.encode([text]) # 文本通过阿里云embedder转为向量
+    ctx_txt, hits = "（无手册资料）", [] # RAG初始
+    if kb_res[0].ntotal > 0: # 如果RAG非空，找到最相似的3个片段
         _, idx = kb_res[0].search(vec, 3)
         hits = [kb_res[1][i] for i in idx[0] if i < len(kb_res[1])]
         ctx_txt = "\n".join([f"- {h[:200]}..." for h in hits])
         
-    case_txt, found_cases = "（无相似判例）", []
-    if case_res[0].ntotal > 0:
+    case_txt, found_cases = "（无相似判例）", [] # 判例初始
+    if case_res[0].ntotal > 0: # 如果判例库非空，找到最相似的2个片段
         _, idx = case_res[0].search(vec, 2)
         for i in idx[0]:
             if i < len(case_res[1]) and i >= 0:
@@ -202,9 +533,11 @@ def run_scoring(text, kb_res, case_res, prompt_cfg, embedder, client, model_id):
                 sc = c.get('scores', {})
                 u_sc = sc.get('优雅性',{}).get('score', 0) if isinstance(sc,dict) and '优雅性' in sc else 0
                 k_sc = sc.get('苦涩度',{}).get('score', 0) if isinstance(sc,dict) and '苦涩度' in sc else 0
+                # 挑了两个因子教模型相似的文本大致落在哪个区间
                 case_txt += f"\n参考案例: {c['text'][:30]}... -> 优雅性:{u_sc} 苦涩度:{k_sc}"
 
-    sys_p = prompt_cfg.get('system_template', DEFAULT_PROMPT_CONFIG['system_template']).replace("{model_description}", get_model_desc())
+    # 系统prompt无改动，用户prompt随着茶评、知识库内容、判例库内容相应变化
+    sys_p = prompt_cfg.get('system_template', DEFAULT_PROMPT_CONFIG['system_template'])
     user_p = prompt_cfg.get('user_template', DEFAULT_PROMPT_CONFIG['user_template']).format(product_desc=text, context_text=ctx_txt, case_text=case_txt)
 
     try:
@@ -212,21 +545,24 @@ def run_scoring(text, kb_res, case_res, prompt_cfg, embedder, client, model_id):
             model=model_id, # 使用用户指定的 Model ID
             messages=[{"role":"system", "content":sys_p}, {"role":"user", "content":user_p}],
             response_format={"type": "json_object"},
-            temperature=0.3
+            temperature=0.3 # 温度设置较低，减少模型自由发挥的空间
         )
-        return json.loads(resp.choices[0].message.content), hits, found_cases
-    except Exception as e:
+        return json.loads(resp.choices[0].message.content), hits, found_cases #返回评分 JSON、命中的手册片段、命中的判例对象
+    except Exception as e: #UI 友好，不会炸页面
         st.error(f"Inference Error: {e}")
         return None, [], []
 
+# 上传文件解析
 def parse_file(uploaded_file):
     try:
         if uploaded_file.name.endswith('.txt'): return uploaded_file.read().decode("utf-8")
         if uploaded_file.name.endswith('.pdf'): return "".join([p.extract_text() for p in PdfReader(uploaded_file).pages])
+        # 扫描版本的PDF将无法识别其中内容
         if uploaded_file.name.endswith('.docx'): return "\n".join([p.text for p in Document(uploaded_file).paragraphs])
     except: return ""
     return ""
 
+# 批量评分导出（仅适用于批量评分模式）
 def create_word_report(results):
     doc = Document()
     doc.add_heading("茶评批量评分报告", 0)
@@ -248,15 +584,49 @@ def create_word_report(results):
             r[2].text = v.get('comment','')
             r[3].text = v.get('suggestion','')
         doc.add_paragraph("_"*20)
-    bio = BytesIO()
+    bio = BytesIO() # Output is returned as BytesIO for direct download.
     doc.save(bio)
     bio.seek(0)
     return bio
+
+def bootstrap_seed_cases_if_empty(embedder):
+    """
+    Inject built-in SEED_CASES into case library
+    ONLY when local case library is empty.
+    """
+    case_idx, case_data = st.session_state.cases
+
+    # 如果已经有判例，什么都不做
+    if len(case_data) > 0:
+        return
+
+    texts = [c["text"] for c in SEED_CASES]
+    vecs = embedder.encode(texts)
+
+    # 确保 index 是空的、维度正确
+    if case_idx.ntotal == 0 and case_idx.d == 1024:
+        case_idx.add(vecs)
+    else:
+        case_idx = faiss.IndexFlatL2(1024)
+        case_idx.add(vecs)
+
+    case_data.extend(SEED_CASES)
+
+    # 更新 session_state 并落盘
+    st.session_state.cases = (case_idx, case_data)
+    DataManager.save(
+        case_idx,
+        case_data,
+        PATHS["case_index"],
+        PATHS["case_data"],
+        is_json=True
+    )
 
 # ==========================================
 # 3. 页面初始化
 # ==========================================
 
+# Session State 首次加载：只做一次“冷启动恢复”
 if 'loaded' not in st.session_state:
     kb_idx, kb_data = DataManager.load(PATHS['kb_index'], PATHS['kb_chunks'])
     case_idx, case_data = DataManager.load(PATHS['case_index'], PATHS['case_data'], is_json=True)
@@ -275,40 +645,37 @@ with st.sidebar:
     st.header("⚙️ 系统配置")
     st.markdown("**🔐 API 配置（默认使用环境变量）**")
 
-    # 先从环境变量 / secrets 读
-    env_aliyun_key = os.getenv("ALIYUN_API_KEY") or st.secrets.get("ALIYUN_API_KEY", "")
-    env_deepseek_key = os.getenv("DEEPSEEK_API_KEY") or st.secrets.get("DEEPSEEK_API_KEY", "")
-
-    # UI 仍然保留，但默认值是环境变量
-    aliyun_key = st.text_input(
-        "阿里云 Key（可覆盖）",
-        value=env_aliyun_key,
-        type="password"
-    )
-
-    deepseek_key = st.text_input(
-        "DeepSeek Key（可覆盖）",
-        value=env_deepseek_key,
-        type="password"
-    )
+    # 从环境变量 / secrets 读取
+    aliyun_key = os.getenv("ALIYUN_API_KEY") or st.secrets.get("ALIYUN_API_KEY", "")
+    deepseek_key = os.getenv("DEEPSEEK_API_KEY") or st.secrets.get("DEEPSEEK_API_KEY", "")
+    
 
     if not aliyun_key or not deepseek_key:
         st.warning("⚠️ 当前未配置 API Key，系统将无法运行")
         st.stop()
+    else:
+        # ✅ API Key 存在，视为“调用可用”
+        st.success("✅ API 调用成功")
 
     st.markdown("---")
     st.markdown("**🧠 模型设定**")
 
-    ft_status = DataManager.load_ft_status()
-    default_model = "deepseek-chat"
-    if ft_status and ft_status.get("status") == "succeeded":
-        default_model = ft_status.get("fine_tuned_model", default_model)
-        st.toast(f"已加载微调模型: {default_model}", icon="🎉")
+    # 固定模型
+    model_name = "deepseek-chat"
+    st.markdown(f"**当前模型：** `{model_name}`")
 
-    model_id = st.text_input("Model ID", value=default_model)
+    # 如存在微调模型，仅展示提示（不允许切换）
+    ft_status = DataManager.load_ft_status()
+    if ft_status and ft_status.get("status") == "succeeded":
+        ft_model = ft_status.get("fine_tuned_model")
+        st.info(f"🎉 已检测到微调模型：`{ft_model}`（当前未启用）")
+
+    model_id = model_name   # model_id 和 model_name在此处（deepseek）是一样的 model_id kept for future extension (e.g., switching to fine-tuned model), currently fixed.
 
     embedder = AliyunEmbedder(aliyun_key)
     client = OpenAI(api_key=deepseek_key, base_url="https://api.deepseek.com")
+    bootstrap_seed_cases_if_empty(embedder)
+
     
     st.markdown("---")
     st.markdown("**📚 RAG 知识库管理**")
@@ -389,7 +756,7 @@ with tab1:
         if not user_input or not client: st.warning("请检查输入或 API Key")
         else:
             with st.spinner(f"正在使用模型 {model_id} 品鉴..."):
-                scores, kb_hits, case_hits = run_scoring(
+                scores, kb_hits, case_hits = run_scoring( # 评分json，命中知识库手册的chunks，命中的相似判例
                     user_input, st.session_state.kb, st.session_state.cases,
                     st.session_state.prompt_config, embedder, client, model_id
                 )
@@ -406,21 +773,108 @@ with tab1:
                             data = s_dict[fname]
                             with cols[i%3]:
                                 st.markdown(f"""<div class="factor-card"><div class="score-header"><span>{fname}</span><span>{data.get('score')}/9</span></div><div style="margin:5px 0; font-size:0.9em;">{data.get('comment')}</div><div class="advice-tag">💡 {data.get('suggestion','')}</div></div>""", unsafe_allow_html=True)
-                    
-                    with st.expander("📥 认可此评分？(点击保存)"):
-                        if st.button("✅ 确认保存 (自动加入训练集)"):
-                            new_case = {"text": user_input, "scores": s_dict, "tags": "交互生成"}
+
+                    with st.expander("📥 认可此评分？可保存或修改评分结果！"):
+                        # ---- 1) 提供可编辑的“人工校准区” ----
+                        factors = ["优雅性", "辨识度", "协调性", "饱和度", "持久性", "苦涩度"]
+                        edited_scores = {}
+
+                        # master_comment 也允许编辑（可选）
+                        edited_master = st.text_area(
+                            "✍️ 宗师总评（可选：不改则沿用模型输出）",
+                            value=scores.get("master_comment", ""),
+                            height=120
+                        )
+
+                        st.markdown("#### 🛠️ 六因子校准（可修改后再保存）")
+
+                        # 用 form 避免每改一个输入就触发保存逻辑混乱
+                        with st.form("adjust_scores_form"):
+                            c1, c2 = st.columns(2)
+                            for i, f in enumerate(factors):
+                                src = s_dict.get(f, {})
+                                col = c1 if i % 2 == 0 else c2
+                                with col:
+                                    st.markdown(f"**{f}**")
+
+                                    # 分数（0-9）
+                                    score_val = st.number_input(
+                                        f"{f} 分数",
+                                        min_value=0, max_value=9,
+                                        value=int(src.get("score", 4)),
+                                        step=1,
+                                        key=f"edit_score_{f}"
+                                    )
+
+                                    # 评语/建议
+                                    comment_val = st.text_input(
+                                        f"{f} 评语",
+                                        value=str(src.get("comment", "")),
+                                        key=f"edit_comment_{f}"
+                                    )
+                                    suggestion_val = st.text_input(
+                                        f"{f} 建议",
+                                        value=str(src.get("suggestion", "")),
+                                        key=f"edit_suggestion_{f}"
+                                    )
+
+                                    edited_scores[f] = {
+                                        "score": int(score_val),
+                                        "comment": comment_val,
+                                        "suggestion": suggestion_val
+                                    }
+
+                            # ---- 2) 保存按钮：以“编辑后的结果”为准落盘 & 入训练集 ----
+                            submitted = st.form_submit_button("✅ 使用校准后的评分保存（加入判例库 & 训练集）")
+
+                        if submitted:
+                            # 保存判例库用“校准后的 scores”
+                            new_case = {"text": user_input, "scores": edited_scores, "tags": "交互生成-人工校准"}
                             st.session_state.cases[1].append(new_case)
+
+                            vec = embedder.encode([user_input])
+                            st.session_state.cases[0].add(vec)
+                            DataManager.save(
+                                st.session_state.cases[0],
+                                st.session_state.cases[1],
+                                PATHS['case_index'],
+                                PATHS['case_data'],
+                                is_json=True
+                            )
+
+                            # 训练集也使用校准后的 scores（建议把 master_comment 也写入训练集）
+                            sys_p = st.session_state.prompt_config['system_template']
+
+                            # 这里沿用 append_to_finetune，但它目前 master_comment 固定“（人工校准）”
+                            # 如果希望把 edited_master 写入训练集，建议升级 append_to_finetune
+                            DataManager.append_to_finetune(
+                                user_input,
+                                edited_scores,
+                                sys_p,
+                                st.session_state.prompt_config['user_template']
+                            )
+
+                            st.success("✅ 已用人工校准结果存档！数据已加入判例库和微调队列。")
+                            time.sleep(1)
+                            st.rerun()
+
+                        # ---- 3) 同时保留原“直接认可保存”快捷入口（可选）----
+                        st.markdown("---")
+                        if st.button("⚡ 直接认可模型评分并保存（不校准）"):
+                            new_case = {"text": user_input, "scores": s_dict, "tags": "交互生成-未校准"}
+                            st.session_state.cases[1].append(new_case)
+
                             vec = embedder.encode([user_input])
                             st.session_state.cases[0].add(vec)
                             DataManager.save(st.session_state.cases[0], st.session_state.cases[1], PATHS['case_index'], PATHS['case_data'], is_json=True)
-                            
-                            sys_p = st.session_state.prompt_config['system_template'].replace("{model_description}", get_model_desc())
+
+                            sys_p = st.session_state.prompt_config['system_template']
                             DataManager.append_to_finetune(user_input, s_dict, sys_p, st.session_state.prompt_config['user_template'])
-                            
-                            st.success("已存档！数据已加入 RAG 库和微调队列。")
+
+                            st.success("已按模型原评分存档！")
                             time.sleep(1)
                             st.rerun()
+
 
 # --- Tab 2: 批量评分 ---
 with tab2:
@@ -555,7 +1009,7 @@ with tab3:
                         st.session_state.cases[0].add(vec)
                         DataManager.save(st.session_state.cases[0], st.session_state.cases[1], PATHS['case_index'], PATHS['case_data'], is_json=True)
                         
-                        sys_p = st.session_state.prompt_config['system_template'].replace("{model_description}", get_model_desc())
+                        sys_p = st.session_state.prompt_config['system_template']
                         DataManager.append_to_finetune(f_txt, input_scores, sys_p, st.session_state.prompt_config['user_template'])
                         
                         st.success("已保存！")
@@ -569,20 +1023,19 @@ with tab3:
 
     # Column 3: Prompt
     with c3:
-        st.subheader("📝 Prompt 模板")
+        st.subheader("📝 Prompt 提示词模板")
         current_sys = st.session_state.prompt_config.get('system_template', '')
         current_user = st.session_state.prompt_config.get('user_template', '')
         
-        if "{case_text}" not in current_user: st.warning("User Template 缺少 {case_text}")
+        if "{case_text}" not in current_user: st.warning("用户输入模板 缺少 {case_text}")
         
-        sys_t = st.text_area("System Template", current_sys, height=200)
-        user_t = st.text_area("User Template", current_user, height=200)
+        sys_t = st.text_area("系统提示词模板", current_sys, height=200)
+        user_t = st.text_area("用户输入提示词模板", current_user, height=200, disabled=True)
         
-        if st.button("💾 保存 Prompt"):
+        if st.button("💾 保存 Prompt 提示词"):
             new_cfg = {"system_template": sys_t, "user_template": user_t}
             st.session_state.prompt_config = new_cfg
             with open(PATHS['prompt'], 'w') as f: json.dump(new_cfg, f, ensure_ascii=False)
 
             st.success("Prompt 已保存！"); time.sleep(1); st.rerun()
-
 
