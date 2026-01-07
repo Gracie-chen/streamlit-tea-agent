@@ -15,7 +15,7 @@ import dashscope
 from dashscope import TextEmbedding
 from openai import OpenAI
 from docx import Document
-
+from langchain_community.embeddings import DashScopeEmbeddings
 # ==========================================
 # 0. 基础配置与持久化路径
 # ==========================================
@@ -1038,4 +1038,5 @@ with tab3:
             with open(PATHS['prompt'], 'w') as f: json.dump(new_cfg, f, ensure_ascii=False)
 
             st.success("Prompt 已保存！"); time.sleep(1); st.rerun()
+
 
