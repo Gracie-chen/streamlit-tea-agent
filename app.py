@@ -67,15 +67,19 @@ class DataManager:
             if is_json: json.dump(data, f, ensure_ascii=False, indent=2)
             else: pickle.dump(data, f)
 
-    # 把“已确认判例”变成微调样本 
-    @staticmethod
+@staticmethod
 def append_to_finetune(case_text, scores, system_prompt, user_template, master_comment="（人工校准）"):
     """
     把"已确认判例"变成微调样本 
-    修复：添加 master_comment 参数支持
+    修复：支持传入专家评语
     """
     try:
+        # 打印调试信息
+        print(f"[DEBUG] append_to_finetune 被调用")
+        print(f"[DEBUG] master_comment: {master_comment}")
+        
         user_content = user_template.format(product_desc=case_text, context_text="", case_text="")
+        
         assistant_content = json.dumps({"master_comment": master_comment, "scores": scores}, ensure_ascii=False)
         entry = {
             "messages": [
@@ -86,11 +90,19 @@ def append_to_finetune(case_text, scores, system_prompt, user_template, master_c
         }
         with open(PATHS['training_file'], "a", encoding="utf-8") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        
+        # 检查文件是否写入
+        if os.path.exists(PATHS['training_file']):
+            with open(PATHS['training_file'], "r", encoding="utf-8") as f:
+                lines = f.readlines()
+                print(f"[DEBUG] 当前微调文件行数: {len(lines)}")
+        
         return True
     except Exception as e:
-        print(f"[ERROR] append_to_finetune 失败: {e}")
+        print(f"[ERROR] append_to_finetune 失败: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return False
-
     @staticmethod
     # 从磁盘恢复FAISS和数据
     def load(idx_path, data_path, is_json=False):
@@ -1271,6 +1283,7 @@ with tab1:
             with open(PATHS['prompt'], 'w') as f: json.dump(new_cfg, f, ensure_ascii=False)
 
             st.success("Prompt 已保存！"); time.sleep(1); st.rerun()
+
 
 
 
