@@ -686,9 +686,9 @@ with tab1:
                             data = s_dict[fname]
                             with cols[i%3]:
                                 st.markdown(f"""<div class="factor-card"><div class="score-header"><span>{fname}</span><span>{data.get('score')}/9</span></div><div style="margin:5px 0; font-size:0.9em;">{data.get('comment')}</div><div class="advice-tag">💡 {data.get('suggestion','')}</div></div>""", unsafe_allow_html=True)
-
+            
                     with st.expander("📥 认可此评分？可保存或修改评分结果！"):
-                        # ---- 1) 提供可编辑的“人工校准区” ----
+                        # ---- 1) 提供可编辑的"人工校准区" ----
                         factors = ["优雅性", "辨识度", "协调性", "饱和度", "持久性", "苦涩度"]
                         edited_scores = {}
 
@@ -737,10 +737,12 @@ with tab1:
                                         "suggestion": suggestion_val
                                     }
 
-                            # ---- 2) 保存按钮：以“编辑后的结果”为准落盘 & 入训练集 ----
+                            # ---- 2) 保存按钮：以"编辑后的结果"为准落盘 & 入训练集 ----
                             submitted = st.form_submit_button("✅ 使用校准后的评分保存（加入判例库 & 训练集）")
-
-                         # DEBUG: 打印保存前状态
+                        
+                        # 这个保存逻辑应该在表单提交后执行，放在外面
+                        if submitted:
+                            # DEBUG: 打印保存前状态
                             print(f"[DEBUG] 保存前判例库数量: {len(st.session_state.cases[1])}")
                             print(f"[DEBUG] 待保存case_text: {user_input[:50]}...")
                             print(f"[DEBUG] 待保存scores: {edited_scores}")
@@ -785,34 +787,62 @@ with tab1:
                                     is_json=True
                                 )
                                 print(f"[DEBUG] 判例已保存到磁盘")
+                                
+                                # 4. 保存到微调数据
+                                sys_p = st.session_state.prompt_config['system_template']
                                 DataManager.append_to_finetune(
                                     user_input,
                                     edited_scores,
                                     sys_p,
-                                    st.session_state.prompt_config['user_template']
+                                    st.session_state.prompt_config['user_template'],
+                                    master_comment=edited_master
                                 )
     
                                 st.success("✅ 已用人工校准结果存档！数据已加入判例库和微调队列。")
                                 time.sleep(1)
                                 st.rerun()
+                                
+                            except Exception as e:
+                                st.error(f"保存失败: {str(e)}")
+                                import traceback
+                                st.code(traceback.format_exc())
+
+                        # ---- 3) 同时保留原"直接认可保存"快捷入口（可选）----
+                        st.markdown("---")
+                        if st.button("⚡ 直接认可模型评分并保存（不校准）"):
+                            try:
+                                new_case = {
+                                    "text": user_input, 
+                                    "scores": s_dict, 
+                                    "tags": "交互生成-未校准",
+                                    "master_comment": scores.get("master_comment", "")
+                                }
+                                st.session_state.cases[1].append(new_case)
     
-                                # ---- 3) 同时保留原“直接认可保存”快捷入口（可选）----
-                                st.markdown("---")
-                                if st.button("⚡ 直接认可模型评分并保存（不校准）"):
-                                    new_case = {"text": user_input, "scores": s_dict, "tags": "交互生成-未校准"}
-                                    st.session_state.cases[1].append(new_case)
-        
-                                    vec = embedder.encode([user_input])
-                                    st.session_state.cases[0].add(vec)
-                                    DataManager.save(st.session_state.cases[0], st.session_state.cases[1], PATHS['case_index'], PATHS['case_data'], is_json=True)
-        
-                                    sys_p = st.session_state.prompt_config['system_template']
-                                    DataManager.append_to_finetune(user_input, s_dict, sys_p, st.session_state.prompt_config['user_template'])
-        
-                                    st.success("已按模型原评分存档！")
-                                    time.sleep(1)
-                                    st.rerun()
+                                vec = embedder.encode([user_input])
+                                st.session_state.cases[0].add(vec)
+                                DataManager.save(
+                                    st.session_state.cases[0], 
+                                    st.session_state.cases[1], 
+                                    PATHS['case_index'], 
+                                    PATHS['case_data'], 
+                                    is_json=True
+                                )
     
+                                sys_p = st.session_state.prompt_config['system_template']
+                                DataManager.append_to_finetune(
+                                    user_input, 
+                                    s_dict, 
+                                    sys_p, 
+                                    st.session_state.prompt_config['user_template'],
+                                    master_comment=scores.get("master_comment", "")
+                                )
+    
+                                st.success("已按模型原评分存档！")
+                                time.sleep(1)
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"保存失败: {str(e)}")
         
     # --- Tab 2: 批量评分 ---
     with tab2:
@@ -1185,6 +1215,7 @@ with tab1:
             with open(PATHS['prompt'], 'w') as f: json.dump(new_cfg, f, ensure_ascii=False)
 
             st.success("Prompt 已保存！"); time.sleep(1); st.rerun()
+
 
 
 
