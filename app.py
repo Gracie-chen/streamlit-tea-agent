@@ -664,6 +664,10 @@ with tab1:
     st.info("AI 将参考知识库与判例库进行评分。确认结果后将自动更新 RAG 库和后台微调数据。")
     user_input = st.text_area("输入茶评描述:", height=120)
     
+    # 添加一个状态显示
+    if 'last_save_status' not in st.session_state:
+        st.session_state.last_save_status = None
+    
     if st.button("开始评分", type="primary", use_container_width=True):
         if not user_input or not client: 
             st.warning("请检查输入或 API Key")
@@ -688,103 +692,48 @@ with tab1:
                                 st.markdown(f"""<div class="factor-card"><div class="score-header"><span>{fname}</span><span>{data.get('score')}/9</span></div><div style="margin:5px 0; font-size:0.9em;">{data.get('comment')}</div><div class="advice-tag">💡 {data.get('suggestion','')}</div></div>""", unsafe_allow_html=True)
 
                     with st.expander("📥 认可此评分？可保存或修改评分结果！"):
-                        # ---- 1) 提供可编辑的"人工校准区" ----
-                        factors = ["优雅性", "辨识度", "协调性", "饱和度", "持久性", "苦涩度"]
-                        # 使用session_state来存储编辑的分数，确保在表单提交时仍然可用
-                        if 'edited_scores' not in st.session_state:
-                            st.session_state.edited_scores = {}
+                        # 显示当前判例库状态
+                        current_count = len(st.session_state.cases[1])
+                        st.info(f"当前判例库有 **{current_count}** 条判例")
                         
-                        # master_comment 也允许编辑（可选）
-                        edited_master = st.text_area(
-                            "✍️ 宗师总评（可选：不改则沿用模型输出）",
-                            value=scores.get("master_comment", ""),
-                            height=120,
-                            key="edited_master"
-                        )
-
-                        st.markdown("#### 🛠️ 六因子校准（可修改后再保存）")
-
-                        # 用 form 避免每改一个输入就触发保存逻辑混乱
-                        with st.form("adjust_scores_form"):
-                            c1, c2 = st.columns(2)
-                            for i, f in enumerate(factors):
-                                src = s_dict.get(f, {})
-                                col = c1 if i % 2 == 0 else c2
-                                with col:
-                                    st.markdown(f"**{f}**")
-
-                                    # 分数（0-9）
-                                    score_val = st.number_input(
-                                        f"{f} 分数",
-                                        min_value=0, max_value=9,
-                                        value=int(src.get("score", 4)),
-                                        step=1,
-                                        key=f"edit_score_{f}"
-                                    )
-
-                                    # 评语/建议
-                                    comment_val = st.text_input(
-                                        f"{f} 评语",
-                                        value=str(src.get("comment", "")),
-                                        key=f"edit_comment_{f}"
-                                    )
-                                    suggestion_val = st.text_input(
-                                        f"{f} 建议",
-                                        value=str(src.get("suggestion", "")),
-                                        key=f"edit_suggestion_{f}"
-                                    )
-
-                                    # 存储在session_state中
-                                    st.session_state.edited_scores[f] = {
-                                        "score": int(score_val),
-                                        "comment": comment_val,
-                                        "suggestion": suggestion_val
-                                    }
-
-                            # ---- 2) 保存按钮：以"编辑后的结果"为准落盘 & 入训练集 ----
-                            submitted = st.form_submit_button("✅ 使用校准后的评分保存（加入判例库 & 训练集）")
+                        if st.session_state.last_save_status:
+                            st.success(f"上次保存状态: {st.session_state.last_save_status}")
                         
-                        # 这个保存逻辑应该在表单提交后执行，放在外面
-                        if submitted:
-                            # 获取保存前的判例库数量
-                            prev_case_count = len(st.session_state.cases[1])
-                            
-                            # 确保edited_master不为空
-                            if not edited_master or edited_master.strip() == "":
-                                edited_master = scores.get("master_comment", "（人工校准）")
-                            
-                            # 使用session_state中存储的edited_scores
-                            edited_scores = st.session_state.edited_scores
-                            
-                            # 保存判例库用"校准后的scores"
-                            new_case = {
-                                "text": user_input, 
-                                "scores": edited_scores, 
-                                "tags": "交互生成-人工校准",
-                                "master_comment": edited_master,
-                                "created_at": time.strftime("%Y-%m-%d %H:%M:%S")
-                            }
-                            
+                        # 简化：直接保存模型原始评分
+                        if st.button("✅ 保存到判例库 (简单测试)", key="simple_save"):
                             try:
-                                # 1. 添加到内存中的判例列表
+                                print(f"[DEBUG] 开始保存到判例库")
+                                
+                                # 创建新判例
+                                new_case = {
+                                    "text": user_input, 
+                                    "scores": s_dict, 
+                                    "tags": "交互生成-测试",
+                                    "master_comment": mc,
+                                    "created_at": time.strftime("%Y-%m-%d %H:%M:%S")
+                                }
+                                
+                                # 1. 添加到内存列表
                                 st.session_state.cases[1].append(new_case)
-                                current_case_count = len(st.session_state.cases[1])
+                                new_count = len(st.session_state.cases[1])
+                                print(f"[DEBUG] 内存判例数: {current_count} -> {new_count}")
                                 
-                                # 2. 生成向量并添加到索引
+                                # 2. 添加到向量索引
                                 vec = embedder.encode([user_input])
+                                print(f"[DEBUG] 向量维度: {vec.shape}")
                                 
-                                # 检查索引维度是否匹配
+                                # 检查索引
                                 if st.session_state.cases[0].d == 1024:
                                     st.session_state.cases[0].add(vec)
+                                    print(f"[DEBUG] 向量添加到索引")
                                 else:
-                                    # 重新创建索引
+                                    print(f"[DEBUG] 索引维度不匹配，重新创建索引")
                                     st.session_state.cases = (faiss.IndexFlatL2(1024), st.session_state.cases[1])
-                                    all_texts = [c["text"] for c in st.session_state.cases[1]]
-                                    if all_texts:
-                                        all_vecs = embedder.encode(all_texts)
-                                        st.session_state.cases[0].add(all_vecs)
+                                    all_vecs = embedder.encode([c["text"] for c in st.session_state.cases[1]])
+                                    st.session_state.cases[0].add(all_vecs)
                                 
                                 # 3. 保存到磁盘
+                                print(f"[DEBUG] 开始保存到磁盘...")
                                 DataManager.save(
                                     st.session_state.cases[0],
                                     st.session_state.cases[1],
@@ -793,74 +742,29 @@ with tab1:
                                     is_json=True
                                 )
                                 
-                                # 4. 保存到微调数据
-                                sys_p = st.session_state.prompt_config['system_template']
-                                DataManager.append_to_finetune(
-                                    user_input,
-                                    edited_scores,
-                                    sys_p,
-                                    st.session_state.prompt_config['user_template'],
-                                    master_comment=edited_master
-                                )
+                                # 验证保存
+                                if os.path.exists(PATHS['case_data']):
+                                    with open(PATHS['case_data'], 'r', encoding='utf-8') as f:
+                                        saved_cases = json.load(f)
+                                        print(f"[DEBUG] 磁盘文件验证: 保存了 {len(saved_cases)} 条判例")
                                 
-                                # 显示保存成功信息
-                                st.success(f"✅ 已用人工校准结果存档！判例库从 {prev_case_count} 条增加到 {current_case_count} 条。")
+                                # 4. 保存状态
+                                st.session_state.last_save_status = f"成功保存！判例库数量: {new_count}"
                                 
-                                # 清除edited_scores状态
-                                if 'edited_scores' in st.session_state:
-                                    del st.session_state.edited_scores
+                                st.success(f"✅ 保存成功！判例库现在有 {new_count} 条判例。")
+                                st.balloons()
                                 
-                                # 等待2秒后重新加载页面
-                                time.sleep(2)
+                                # 立即刷新
+                                time.sleep(1)
                                 st.rerun()
                                 
                             except Exception as e:
-                                st.error(f"保存失败: {str(e)}")
+                                error_msg = f"保存失败: {str(e)}"
+                                print(f"[ERROR] {error_msg}")
                                 import traceback
-                                st.code(traceback.format_exc())
-
-                        # ---- 3) 同时保留原"直接认可保存"快捷入口（可选）----
-                        st.markdown("---")
-                        if st.button("⚡ 直接认可模型评分并保存（不校准）", key="direct_save"):
-                            try:
-                                # 获取保存前的判例库数量
-                                prev_case_count = len(st.session_state.cases[1])
-                                
-                                new_case = {
-                                    "text": user_input, 
-                                    "scores": s_dict, 
-                                    "tags": "交互生成-未校准",
-                                    "master_comment": scores.get("master_comment", ""),
-                                    "created_at": time.strftime("%Y-%m-%d %H:%M:%S")
-                                }
-                                st.session_state.cases[1].append(new_case)
-                                
-                                current_case_count = len(st.session_state.cases[1])
-    
-                                vec = embedder.encode([user_input])
-                                st.session_state.cases[0].add(vec)
-                                DataManager.save(
-                                    st.session_state.cases[0], 
-                                    st.session_state.cases[1], 
-                                    PATHS['case_index'], 
-                                    PATHS['case_data'], 
-                                    is_json=True
-                                )
-    
-                                sys_p = st.session_state.prompt_config['system_template']
-                                DataManager.append_to_finetune(
-                                    user_input, 
-                                    s_dict, 
-                                    sys_p, 
-                                    st.session_state.prompt_config['user_template'],
-                                    master_comment=scores.get("master_comment", "")
-                                )
-    
-                                st.success(f"已按模型原评分存档！判例库从 {prev_case_count} 条增加到 {current_case_count} 条。")
-                                time.sleep(2)
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"保存失败: {str(e)}")
+                                traceback.print_exc()
+                                st.error(error_msg)
+                                st.session_state.last_save_status = f"失败: {str(e)}"
     # --- Tab 2: 批量评分 ---
     with tab2:
         up_file = st.file_uploader("上传文件 (支持 .txt / .docx)", type=['txt','docx'])
@@ -1232,6 +1136,7 @@ with tab1:
             with open(PATHS['prompt'], 'w') as f: json.dump(new_cfg, f, ensure_ascii=False)
 
             st.success("Prompt 已保存！"); time.sleep(1); st.rerun()
+
 
 
 
