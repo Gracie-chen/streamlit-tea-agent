@@ -813,360 +813,360 @@ with tab1:
                                     time.sleep(1)
                                     st.rerun()
     
-    
-# --- Tab 2: 批量评分 ---
-with tab2:
-    up_file = st.file_uploader("上传文件 (支持 .txt / .docx)", type=['txt','docx'])
-    if up_file and st.button("开始批量处理"):
-        if not client: st.error("请配置 Key")
-        else:
-            txt = parse_file(up_file)
-            lines = [l.strip() for l in txt.split('\n') if len(l)>10]
-            results = []
-            bar = st.progress(0)
-            for i, line in enumerate(lines):
-                s, _, _ = run_scoring(line, st.session_state.kb, st.session_state.cases, st.session_state.prompt_config, embedder, client, model_id)
-                results.append({"id": i+1, "text": line, "scores": s})
-                bar.progress((i+1)/len(lines))
-            st.success("完成！")
-            doc_io = create_word_report(results)
-            st.download_button("📥 下载 Word 报告", doc_io, "茶评报告.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
-
-# --- Tab 3: 模型调优 (自动化微调流程) ---
-with tab3:
-    c1, c2, c3 = st.columns(3)
-    
-    # Column 1: RAG 知识库
-    with c1:
-        st.subheader("📚 RAG 知识库")
-        files = st.file_uploader("上传PDF", accept_multiple_files=True, key="kb_up")
-        st.info(f"💾 当前存储: {len(st.session_state.kb[1])} 片段")
-        if files and st.button("更新知识库"):
-            if not embedder: st.error("需 API Key")
-            else:
-                with st.spinner("处理并存盘..."):
-                    raw = "".join([parse_file(f) for f in files])
-                    chunks = [raw[i:i+600] for i in range(0,len(raw),500)]
-                    vecs = embedder.encode(chunks)
-                    idx = faiss.IndexFlatL2(1024)
-                    idx.add(vecs)
-                    st.session_state.kb = (idx, chunks)
-                    DataManager.save(idx, chunks, PATHS['kb_index'], PATHS['kb_chunks'])
-                    st.success("知识库已更新！"); time.sleep(1); st.rerun()
-
-    # Column 2: 判例库 & 微调控制台
-    with c2:
-        st.subheader("⚖️ 判例库 & 微调")
-        st.caption("你录入的判例将自动积累为微调数据")
         
-        # 修复点：先定义 case_count
-        case_count = len(st.session_state.cases[1])
-        st.info(f"💾 当前判例: {case_count} 条")
-# 在tab3中添加一个按钮
-    with c2:
-        st.markdown("#### 📥 数据迁移")
+    # --- Tab 2: 批量评分 ---
+    with tab2:
+        up_file = st.file_uploader("上传文件 (支持 .txt / .docx)", type=['txt','docx'])
+        if up_file and st.button("开始批量处理"):
+            if not client: st.error("请配置 Key")
+            else:
+                txt = parse_file(up_file)
+                lines = [l.strip() for l in txt.split('\n') if len(l)>10]
+                results = []
+                bar = st.progress(0)
+                for i, line in enumerate(lines):
+                    s, _, _ = run_scoring(line, st.session_state.kb, st.session_state.cases, st.session_state.prompt_config, embedder, client, model_id)
+                    results.append({"id": i+1, "text": line, "scores": s})
+                    bar.progress((i+1)/len(lines))
+                st.success("完成！")
+                doc_io = create_word_report(results)
+                st.download_button("📥 下载 Word 报告", doc_io, "茶评报告.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
     
-        if st.button("🚀 将现有判例转为微调数据"):
-            if len(st.session_state.cases[1]) > 0:
-                count = 0
-                prompt_cfg = st.session_state
-                for case in st.session_state.cases[1]:
-                    if DataManager.append_to_finetune(
-                        case["text"],
-                        case["scores"],
-                        prompt_cfg.get('system_template', ''),
-                        prompt_cfg.get('user_template', '')
-                    ):
-                        count += 1
+    # --- Tab 3: 模型调优 (自动化微调流程) ---
+    with tab3:
+        c1, c2, c3 = st.columns(3)
+        
+        # Column 1: RAG 知识库
+        with c1:
+            st.subheader("📚 RAG 知识库")
+            files = st.file_uploader("上传PDF", accept_multiple_files=True, key="kb_up")
+            st.info(f"💾 当前存储: {len(st.session_state.kb[1])} 片段")
+            if files and st.button("更新知识库"):
+                if not embedder: st.error("需 API Key")
+                else:
+                    with st.spinner("处理并存盘..."):
+                        raw = "".join([parse_file(f) for f in files])
+                        chunks = [raw[i:i+600] for i in range(0,len(raw),500)]
+                        vecs = embedder.encode(chunks)
+                        idx = faiss.IndexFlatL2(1024)
+                        idx.add(vecs)
+                        st.session_state.kb = (idx, chunks)
+                        DataManager.save(idx, chunks, PATHS['kb_index'], PATHS['kb_chunks'])
+                        st.success("知识库已更新！"); time.sleep(1); st.rerun()
+    
+        # Column 2: 判例库 & 微调控制台
+        with c2:
+            st.subheader("⚖️ 判例库 & 微调")
+            st.caption("你录入的判例将自动积累为微调数据")
             
-                st.success(f"成功导入 {count} 条判例到微调数据！")
-                st.rerun()
-            else:
-                st.warning("判例库为空")
-        # === 微调控制面板 ===
-        st.markdown("#### ☁️ 云端微调控制台")
+            # 修复点：先定义 case_count
+            case_count = len(st.session_state.cases[1])
+            st.info(f"💾 当前判例: {case_count} 条")
+    # 在tab3中添加一个按钮
+        with c2:
+            st.markdown("#### 📥 数据迁移")
         
-        line_count = 0
-        if PATHS['training_file'].exists():
-            try: line_count = sum(1 for _ in open(PATHS['training_file'], 'r', encoding='utf-8'))
-            except: pass
-        
-        st.write(f"可用微调数据: **{line_count} 条**")
-        
-        
-        if st.button("🚀 一键启动微调 (DeepSeek)"):
-            if not client: 
-                st.error("请先配置 API Key")
-            else:
-                try:
-                    # 1. 上传训练文件
-                    with open(PATHS['training_file'], "rb") as f:
-                        file_obj = client.files.create(file=f, purpose="fine-tune")
-                    
-                    st.info(f"文件上传成功，文件ID: {file_obj.id}")
-                    
-                    # 2. 尝试多个可能的微调API端点
-                    job = None
-                    error_messages = []
-                    
-                    # 方法1: 尝试标准fine_tuning.jobs.create
+            if st.button("🚀 将现有判例转为微调数据"):
+                if len(st.session_state.cases[1]) > 0:
+                    count = 0
+                    prompt_cfg = st.session_state
+                    for case in st.session_state.cases[1]:
+                        if DataManager.append_to_finetune(
+                            case["text"],
+                            case["scores"],
+                            prompt_cfg.get('system_template', ''),
+                            prompt_cfg.get('user_template', '')
+                        ):
+                            count += 1
+                
+                    st.success(f"成功导入 {count} 条判例到微调数据！")
+                    st.rerun()
+                else:
+                    st.warning("判例库为空")
+            # === 微调控制面板 ===
+            st.markdown("#### ☁️ 云端微调控制台")
+            
+            line_count = 0
+            if PATHS['training_file'].exists():
+                try: line_count = sum(1 for _ in open(PATHS['training_file'], 'r', encoding='utf-8'))
+                except: pass
+            
+            st.write(f"可用微调数据: **{line_count} 条**")
+            
+            
+            if st.button("🚀 一键启动微调 (DeepSeek)"):
+                if not client: 
+                    st.error("请先配置 API Key")
+                else:
                     try:
-                        job = client.fine_tuning.jobs.create(
-                            training_file=file_obj.id,
-                            model="deepseek-chat",
-                            suffix="tea-expert-v1",
-                            hyperparameters={
-                                "n_epochs": 3,
-                                "batch_size": 1,
-                                "learning_rate_multiplier": 1.0
-                            }
-                        )
-                        st.success(f"微调任务创建成功！Job ID: {job.id}")
+                        # 1. 上传训练文件
+                        with open(PATHS['training_file'], "rb") as f:
+                            file_obj = client.files.create(file=f, purpose="fine-tune")
                         
-                    except Exception as e1:
-                        error_messages.append(f"方法1失败: {str(e1)[:200]}")
+                        st.info(f"文件上传成功，文件ID: {file_obj.id}")
                         
-                        # 方法2: 尝试不同的模型名称
+                        # 2. 尝试多个可能的微调API端点
+                        job = None
+                        error_messages = []
+                        
+                        # 方法1: 尝试标准fine_tuning.jobs.create
                         try:
                             job = client.fine_tuning.jobs.create(
                                 training_file=file_obj.id,
-                                model="deepseek-reasoner",  # 尝试其他模型
-                                suffix="tea-expert-v1"
+                                model="deepseek-chat",
+                                suffix="tea-expert-v1",
+                                hyperparameters={
+                                    "n_epochs": 3,
+                                    "batch_size": 1,
+                                    "learning_rate_multiplier": 1.0
+                                }
                             )
-                            st.success(f"微调任务创建成功！Job ID: {job.id} (使用deepseek-reasoner)")
+                            st.success(f"微调任务创建成功！Job ID: {job.id}")
                             
-                        except Exception as e2:
-                            error_messages.append(f"方法2失败: {str(e2)[:200]}")
+                        except Exception as e1:
+                            error_messages.append(f"方法1失败: {str(e1)[:200]}")
                             
-                            # 方法3: 直接API调用（备用方案）
-                            import requests
-                            
+                            # 方法2: 尝试不同的模型名称
                             try:
-                                headers = {
-                                    "Authorization": f"Bearer {st.session_state.get('deepseek_key', '')}",
-                                    "Content-Type": "application/json"
-                                }
+                                job = client.fine_tuning.jobs.create(
+                                    training_file=file_obj.id,
+                                    model="deepseek-reasoner",  # 尝试其他模型
+                                    suffix="tea-expert-v1"
+                                )
+                                st.success(f"微调任务创建成功！Job ID: {job.id} (使用deepseek-reasoner)")
                                 
-                                # 尝试多个可能的微调端点
-                                endpoints = [
-                                    "https://api.deepseek.com/fine_tuning/jobs",
-                                    "https://api.deepseek.com/v1/fine_tuning/jobs",
-                                    "https://api.deepseek.com/finetuning/jobs",
-                                    "https://api.deepseek.com/v1/finetuning/jobs"
-                                ]
+                            except Exception as e2:
+                                error_messages.append(f"方法2失败: {str(e2)[:200]}")
                                 
-                                payload = {
-                                    "training_file": file_obj.id,
-                                    "model": "deepseek-chat",
-                                    "suffix": "tea-expert-v1"
-                                }
+                                # 方法3: 直接API调用（备用方案）
+                                import requests
                                 
-                                for endpoint in endpoints:
-                                    try:
-                                        response = requests.post(endpoint, headers=headers, json=payload, timeout=30)
-                                        
-                                        if response.status_code == 200:
-                                            job_data = response.json()
-                                            job_id = job_data.get("id")
-                                            st.success(f"微调任务创建成功！Job ID: {job_id}")
-                                            
-                                            # 创建伪job对象以兼容后续代码
-                                            class MockJob:
-                                                def __init__(self, job_id):
-                                                    self.id = job_id
-                                            
-                                            job = MockJob(job_id)
-                                            break
-                                            
-                                        elif response.status_code != 404:
-                                            st.warning(f"端点 {endpoint} 返回 {response.status_code}")
-                                            
-                                    except Exception as endpoint_error:
-                                        continue
-                                
-                                if not job:
-                                    raise Exception("所有微调端点都返回404或失败")
+                                try:
+                                    headers = {
+                                        "Authorization": f"Bearer {st.session_state.get('deepseek_key', '')}",
+                                        "Content-Type": "application/json"
+                                    }
                                     
-                            except Exception as e3:
-                                error_messages.append(f"方法3失败: {str(e3)[:200]}")
-                    
-                    # 3. 如果微调任务创建成功，保存状态
-                    if job:
-                        DataManager.save_ft_status(job.id, "queued", fine_tuned_model=None)
-                        st.success(f"微调任务已启动！Job ID: {job.id}")
+                                    # 尝试多个可能的微调端点
+                                    endpoints = [
+                                        "https://api.deepseek.com/fine_tuning/jobs",
+                                        "https://api.deepseek.com/v1/fine_tuning/jobs",
+                                        "https://api.deepseek.com/finetuning/jobs",
+                                        "https://api.deepseek.com/v1/finetuning/jobs"
+                                    ]
+                                    
+                                    payload = {
+                                        "training_file": file_obj.id,
+                                        "model": "deepseek-chat",
+                                        "suffix": "tea-expert-v1"
+                                    }
+                                    
+                                    for endpoint in endpoints:
+                                        try:
+                                            response = requests.post(endpoint, headers=headers, json=payload, timeout=30)
+                                            
+                                            if response.status_code == 200:
+                                                job_data = response.json()
+                                                job_id = job_data.get("id")
+                                                st.success(f"微调任务创建成功！Job ID: {job_id}")
+                                                
+                                                # 创建伪job对象以兼容后续代码
+                                                class MockJob:
+                                                    def __init__(self, job_id):
+                                                        self.id = job_id
+                                                
+                                                job = MockJob(job_id)
+                                                break
+                                                
+                                            elif response.status_code != 404:
+                                                st.warning(f"端点 {endpoint} 返回 {response.status_code}")
+                                                
+                                        except Exception as endpoint_error:
+                                            continue
+                                    
+                                    if not job:
+                                        raise Exception("所有微调端点都返回404或失败")
+                                        
+                                except Exception as e3:
+                                    error_messages.append(f"方法3失败: {str(e3)[:200]}")
                         
-                        # 显示任务监控信息
-                        st.info("""
-                        **微调任务已提交！**
-                        
-                        接下来你可以：
-                        1. 等待几分钟后点击"刷新状态"按钮查看进度
-                        2. 微调完成后，系统将自动使用新模型评分
-                        3. 如果需要取消任务，请联系DeepSeek客服
-                        """)
-                        
-                        time.sleep(2)
-                        st.rerun()
-                    else:
-                        # 所有方法都失败，显示详细的错误信息和备选方案
-                        st.error("⚠️ DeepSeek微调功能暂时不可用")
-                        
-                        with st.expander("🔍 查看详细错误信息"):
-                            for i, msg in enumerate(error_messages, 1):
-                                st.write(f"{i}. {msg}")
-                        
-                        with st.expander("💡 备选方案"):
-                            st.markdown("""
-                            **由于DeepSeek微调API暂时不可用，建议使用以下方案：**
+                        # 3. 如果微调任务创建成功，保存状态
+                        if job:
+                            DataManager.save_ft_status(job.id, "queued", fine_tuned_model=None)
+                            st.success(f"微调任务已启动！Job ID: {job.id}")
                             
-                            ### 方案A：增强现有系统（立即可用）
-                            ```python
-                            # 1. 增加RAG检索数量
-                            _, idx = kb_res[0].search(vec, 5)  # 从3增加到5
+                            # 显示任务监控信息
+                            st.info("""
+                            **微调任务已提交！**
                             
-                            # 2. 优化系统Prompt
-                            # 在现有Prompt中添加更多示例和规则
-                            
-                            # 3. 使用更低的temperature
-                            temperature=0.1  # 更一致的输出
-                            ```
-                            
-                            ### 方案B：导出数据在其他平台微调
-                            1. 下载训练数据
-                            2. 在Google Colab使用免费GPU微调
-                            3. 使用LM Studio本地微调
-                            
-                            ### 方案C：等待DeepSeek修复API
-                            1. 关注DeepSeek官方公告
-                            2. 联系DeepSeek技术支持
-                            3. 暂时使用基础模型
+                            接下来你可以：
+                            1. 等待几分钟后点击"刷新状态"按钮查看进度
+                            2. 微调完成后，系统将自动使用新模型评分
+                            3. 如果需要取消任务，请联系DeepSeek客服
                             """)
-                        
-                        # 提供数据导出功能
-                        st.markdown("---")
-                        st.subheader("📥 导出训练数据")
-                        
-                        with open(PATHS['training_file'], "rb") as f:
-                            st.download_button(
-                                label="下载训练数据 (JSONL格式)",
-                                data=f,
-                                file_name="tea_training_data.jsonl",
-                                mime="application/json",
-                                key="download_training_data"
-                            )
-                        
-                        st.info("下载后可在Colab、LM Studio等平台进行微调")
-                        
-                except Exception as e:
-                    # 通用错误处理
-                    error_msg = str(e)
-                    
-                    # 针对404错误的特殊处理
-                    if "404" in error_msg:
-                        st.error("""
-                        ❌ **404错误：DeepSeek微调API端点不存在**
-                        
-                        可能的原因：
-                        1. DeepSeek微调功能正在维护中
-                        2. API端点已变更
-                        3. 你的账户暂未开通微调权限
-                        
-                        **解决方案：**
-                        1. 等待DeepSeek官方修复
-                        2. 使用基础模型+增强RAG继续评分
-                        3. 导出数据在其他平台微调
-                        """)
-                        
-                        # 提供降级方案按钮
-                        if st.button("🔄 切换到增强RAG模式", key="switch_to_rag"):
-                            st.session_state['enhanced_rag'] = True
-                            st.success("已切换到增强RAG模式！")
-                            time.sleep(1)
+                            
+                            time.sleep(2)
                             st.rerun()
+                        else:
+                            # 所有方法都失败，显示详细的错误信息和备选方案
+                            st.error("⚠️ DeepSeek微调功能暂时不可用")
                             
-                    else:
-                        # 其他错误
-                        st.error(f"微调启动失败: {error_msg}")
-                        
-                        # 显示调试信息
-                        with st.expander("🛠️ 调试信息"):
-                            st.write(f"错误类型: {type(e).__name__}")
-                            st.write(f"完整错误: {error_msg}")
+                            with st.expander("🔍 查看详细错误信息"):
+                                for i, msg in enumerate(error_messages, 1):
+                                    st.write(f"{i}. {msg}")
                             
-                            # 尝试获取更多API信息
-                            try:
-                                # 测试基本的API连通性
-                                test_response = client.models.list()
-                                st.write("✅ API基础连接正常")
-                                st.write(f"可用模型数量: {len(test_response.data)}")
-                            except:
-                                st.write("❌ API基础连接失败")
-
-        ft_status = DataManager.load_ft_status()
-        if ft_status:
-            st.markdown(f"""
-            <div class="ft-card">
-                <b>🔄 最近任务状态</b><br>
-                Job ID: <code>{ft_status.get('job_id', 'N/A')}</code><br>
-                状态: <b>{ft_status.get('status', 'N/A')}</b><br>
-                模型: {ft_status.get('fine_tuned_model', 'N/A')}
-            </div>
-            """, unsafe_allow_html=True)
-            
-            if ft_status.get('status') in ['queued', 'running']:
-                if st.button("🔄 刷新状态"):
-                    try:
-                        job = client.fine_tuning.jobs.retrieve(ft_status['job_id'])
-                        new_status = job.status
-                        ft_info = {"job_id": job.id, "status": new_status}
-                        if new_status == 'succeeded':
-                            ft_info["fine_tuned_model"] = job.fine_tuned_model
-                            st.success(f"训练完成！模型: {ft_info['fine_tuned_model']}")
-                            st.balloons()
-                        elif new_status == 'failed':
-                            ft_info["error"] = job.error.message
-                            st.error(f"训练失败: {job.error.message}")
-                        
-                        DataManager.save_ft_status(ft_info['job_id'], ft_info['status'], ft_info.get('fine_tuned_model'))
-                        time.sleep(1); st.rerun()
+                            with st.expander("💡 备选方案"):
+                                st.markdown("""
+                                **由于DeepSeek微调API暂时不可用，建议使用以下方案：**
+                                
+                                ### 方案A：增强现有系统（立即可用）
+                                ```python
+                                # 1. 增加RAG检索数量
+                                _, idx = kb_res[0].search(vec, 5)  # 从3增加到5
+                                
+                                # 2. 优化系统Prompt
+                                # 在现有Prompt中添加更多示例和规则
+                                
+                                # 3. 使用更低的temperature
+                                temperature=0.1  # 更一致的输出
+                                ```
+                                
+                                ### 方案B：导出数据在其他平台微调
+                                1. 下载训练数据
+                                2. 在Google Colab使用免费GPU微调
+                                3. 使用LM Studio本地微调
+                                
+                                ### 方案C：等待DeepSeek修复API
+                                1. 关注DeepSeek官方公告
+                                2. 联系DeepSeek技术支持
+                                3. 暂时使用基础模型
+                                """)
+                            
+                            # 提供数据导出功能
+                            st.markdown("---")
+                            st.subheader("📥 导出训练数据")
+                            
+                            with open(PATHS['training_file'], "rb") as f:
+                                st.download_button(
+                                    label="下载训练数据 (JSONL格式)",
+                                    data=f,
+                                    file_name="tea_training_data.jsonl",
+                                    mime="application/json",
+                                    key="download_training_data"
+                                )
+                            
+                            st.info("下载后可在Colab、LM Studio等平台进行微调")
+                            
                     except Exception as e:
-                        st.error(f"查询状态失败: {e}")
-
-        with st.expander("➕ 添加精细判例"):
-            with st.form("case_form"):
-                f_txt = st.text_area("判例描述", height=80)
-                f_tag = st.text_input("标签", "人工录入")
-                st.markdown("**因子评分详情**")
-                fc1, fc2 = st.columns(2)
-                factors = ["优雅性", "辨识度", "协调性", "饱和度", "持久性", "苦涩度"]
-                input_scores = {}
-                for i, f in enumerate(factors):
-                    with (fc1 if i%2==0 else fc2):
-                        val = st.number_input(f"{f}分数", 0,9,7, key=f"s_{i}")
-                        cmt = st.text_input(f"{f}评语", key=f"c_{i}")
-                        sug = st.text_input(f"{f}建议", key=f"a_{i}")
-                        input_scores[f] = {"score": val, "comment": cmt, "suggestion": sug}
+                        # 通用错误处理
+                        error_msg = str(e)
+                        
+                        # 针对404错误的特殊处理
+                        if "404" in error_msg:
+                            st.error("""
+                            ❌ **404错误：DeepSeek微调API端点不存在**
+                            
+                            可能的原因：
+                            1. DeepSeek微调功能正在维护中
+                            2. API端点已变更
+                            3. 你的账户暂未开通微调权限
+                            
+                            **解决方案：**
+                            1. 等待DeepSeek官方修复
+                            2. 使用基础模型+增强RAG继续评分
+                            3. 导出数据在其他平台微调
+                            """)
+                            
+                            # 提供降级方案按钮
+                            if st.button("🔄 切换到增强RAG模式", key="switch_to_rag"):
+                                st.session_state['enhanced_rag'] = True
+                                st.success("已切换到增强RAG模式！")
+                                time.sleep(1)
+                                st.rerun()
+                                
+                        else:
+                            # 其他错误
+                            st.error(f"微调启动失败: {error_msg}")
+                            
+                            # 显示调试信息
+                            with st.expander("🛠️ 调试信息"):
+                                st.write(f"错误类型: {type(e).__name__}")
+                                st.write(f"完整错误: {error_msg}")
+                                
+                                # 尝试获取更多API信息
+                                try:
+                                    # 测试基本的API连通性
+                                    test_response = client.models.list()
+                                    st.write("✅ API基础连接正常")
+                                    st.write(f"可用模型数量: {len(test_response.data)}")
+                                except:
+                                    st.write("❌ API基础连接失败")
+    
+            ft_status = DataManager.load_ft_status()
+            if ft_status:
+                st.markdown(f"""
+                <div class="ft-card">
+                    <b>🔄 最近任务状态</b><br>
+                    Job ID: <code>{ft_status.get('job_id', 'N/A')}</code><br>
+                    状态: <b>{ft_status.get('status', 'N/A')}</b><br>
+                    模型: {ft_status.get('fine_tuned_model', 'N/A')}
+                </div>
+                """, unsafe_allow_html=True)
                 
-                if st.form_submit_button("保存"):
-                    if not embedder: st.error("需 API Key")
-                    else:
-                        new_c = {"text": f_txt, "tags": f_tag, "scores": input_scores}
-                        st.session_state.cases[1].append(new_c)
-                        vec = embedder.encode([f_txt])
-                        st.session_state.cases[0].add(vec)
-                        DataManager.save(st.session_state.cases[0], st.session_state.cases[1], PATHS['case_index'], PATHS['case_data'], is_json=True)
-                        
-                        sys_p = st.session_state.prompt_config['system_template']
-                        DataManager.append_to_finetune(f_txt, input_scores, sys_p, st.session_state.prompt_config['user_template'])
-                        
-                        st.success("已保存！")
-                        time.sleep(1); st.rerun()
-
-        st.write(f"现有判例预览:")
-        for i, c in enumerate(st.session_state.cases[1][-5:]):
-            with st.expander(f"#{case_count-i} {c.get('tags','')}"):
-                st.write(c['text'][:50]+"...")
-                st.json(c['scores'])
+                if ft_status.get('status') in ['queued', 'running']:
+                    if st.button("🔄 刷新状态"):
+                        try:
+                            job = client.fine_tuning.jobs.retrieve(ft_status['job_id'])
+                            new_status = job.status
+                            ft_info = {"job_id": job.id, "status": new_status}
+                            if new_status == 'succeeded':
+                                ft_info["fine_tuned_model"] = job.fine_tuned_model
+                                st.success(f"训练完成！模型: {ft_info['fine_tuned_model']}")
+                                st.balloons()
+                            elif new_status == 'failed':
+                                ft_info["error"] = job.error.message
+                                st.error(f"训练失败: {job.error.message}")
+                            
+                            DataManager.save_ft_status(ft_info['job_id'], ft_info['status'], ft_info.get('fine_tuned_model'))
+                            time.sleep(1); st.rerun()
+                        except Exception as e:
+                            st.error(f"查询状态失败: {e}")
+    
+            with st.expander("➕ 添加精细判例"):
+                with st.form("case_form"):
+                    f_txt = st.text_area("判例描述", height=80)
+                    f_tag = st.text_input("标签", "人工录入")
+                    st.markdown("**因子评分详情**")
+                    fc1, fc2 = st.columns(2)
+                    factors = ["优雅性", "辨识度", "协调性", "饱和度", "持久性", "苦涩度"]
+                    input_scores = {}
+                    for i, f in enumerate(factors):
+                        with (fc1 if i%2==0 else fc2):
+                            val = st.number_input(f"{f}分数", 0,9,7, key=f"s_{i}")
+                            cmt = st.text_input(f"{f}评语", key=f"c_{i}")
+                            sug = st.text_input(f"{f}建议", key=f"a_{i}")
+                            input_scores[f] = {"score": val, "comment": cmt, "suggestion": sug}
+                    
+                    if st.form_submit_button("保存"):
+                        if not embedder: st.error("需 API Key")
+                        else:
+                            new_c = {"text": f_txt, "tags": f_tag, "scores": input_scores}
+                            st.session_state.cases[1].append(new_c)
+                            vec = embedder.encode([f_txt])
+                            st.session_state.cases[0].add(vec)
+                            DataManager.save(st.session_state.cases[0], st.session_state.cases[1], PATHS['case_index'], PATHS['case_data'], is_json=True)
+                            
+                            sys_p = st.session_state.prompt_config['system_template']
+                            DataManager.append_to_finetune(f_txt, input_scores, sys_p, st.session_state.prompt_config['user_template'])
+                            
+                            st.success("已保存！")
+                            time.sleep(1); st.rerun()
+    
+            st.write(f"现有判例预览:")
+            for i, c in enumerate(st.session_state.cases[1][-5:]):
+                with st.expander(f"#{case_count-i} {c.get('tags','')}"):
+                    st.write(c['text'][:50]+"...")
+                    st.json(c['scores'])
 
     # Column 3: Prompt
     with c3:
@@ -1185,6 +1185,7 @@ with tab3:
             with open(PATHS['prompt'], 'w') as f: json.dump(new_cfg, f, ensure_ascii=False)
 
             st.success("Prompt 已保存！"); time.sleep(1); st.rerun()
+
 
 
 
