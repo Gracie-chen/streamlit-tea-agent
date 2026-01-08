@@ -67,23 +67,29 @@ class DataManager:
             if is_json: json.dump(data, f, ensure_ascii=False, indent=2)
             else: pickle.dump(data, f)
 
-    @staticmethod
     # 把“已确认判例”变成微调样本 
-    def append_to_finetune(case_text, scores, system_prompt, user_template):
-        try:
-            user_content = user_template.format(product_desc=case_text, context_text="", case_text="")
-            assistant_content = json.dumps({"master_comment": "（人工校准）", "scores": scores}, ensure_ascii=False)
-            entry = {
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_content},
-                    {"role": "assistant", "content": assistant_content}
-                ]
-            }
-            with open(PATHS['training_file'], "a", encoding="utf-8") as f:
-                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-            return True
-        except: return False
+    @staticmethod
+def append_to_finetune(case_text, scores, system_prompt, user_template, master_comment="（人工校准）"):
+    """
+    把"已确认判例"变成微调样本 
+    修复：添加 master_comment 参数支持
+    """
+    try:
+        user_content = user_template.format(product_desc=case_text, context_text="", case_text="")
+        assistant_content = json.dumps({"master_comment": master_comment, "scores": scores}, ensure_ascii=False)
+        entry = {
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content},
+                {"role": "assistant", "content": assistant_content}
+            ]
+        }
+        with open(PATHS['training_file'], "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        return True
+    except Exception as e:
+        print(f"[ERROR] append_to_finetune 失败: {e}")
+        return False
 
     @staticmethod
     # 从磁盘恢复FAISS和数据
@@ -1265,6 +1271,7 @@ with tab1:
             with open(PATHS['prompt'], 'w') as f: json.dump(new_cfg, f, ensure_ascii=False)
 
             st.success("Prompt 已保存！"); time.sleep(1); st.rerun()
+
 
 
 
