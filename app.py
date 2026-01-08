@@ -740,20 +740,51 @@ with tab1:
                             # ---- 2) 保存按钮：以“编辑后的结果”为准落盘 & 入训练集 ----
                             submitted = st.form_submit_button("✅ 使用校准后的评分保存（加入判例库 & 训练集）")
 
-                        if submitted:
-                            # 保存判例库用“校准后的 scores”
-                            new_case = {"text": user_input, "scores": edited_scores, "tags": "交互生成-人工校准"}
-                            st.session_state.cases[1].append(new_case)
-
-                            vec = embedder.encode([user_input])
-                            st.session_state.cases[0].add(vec)
-                            DataManager.save(
-                                st.session_state.cases[0],
-                                st.session_state.cases[1],
-                                PATHS['case_index'],
-                                PATHS['case_data'],
-                                is_json=True
-                            )
+                         # DEBUG: 打印保存前状态
+                            print(f"[DEBUG] 保存前判例库数量: {len(st.session_state.cases[1])}")
+                            print(f"[DEBUG] 待保存case_text: {user_input[:50]}...")
+                            print(f"[DEBUG] 待保存scores: {edited_scores}")
+                            
+                            # 确保edited_master不为空
+                            if not edited_master or edited_master.strip() == "":
+                                edited_master = scores.get("master_comment", "（人工校准）")
+                            
+                            # 保存判例库用"校准后的scores"
+                            new_case = {
+                                "text": user_input, 
+                                "scores": edited_scores, 
+                                "tags": "交互生成-人工校准",
+                                "master_comment": edited_master
+                            }
+                            
+                            try:
+                                # 1. 添加到内存中的判例列表
+                                st.session_state.cases[1].append(new_case)
+                                print(f"[DEBUG] 判例已添加到内存列表，当前数量: {len(st.session_state.cases[1])}")
+                                
+                                # 2. 生成向量并添加到索引
+                                vec = embedder.encode([user_input])
+                                print(f"[DEBUG] 向量维度: {vec.shape}")
+                                
+                                # 检查索引维度是否匹配
+                                if st.session_state.cases[0].d == 1024:
+                                    st.session_state.cases[0].add(vec)
+                                    print(f"[DEBUG] 向量已添加到索引，索引总数: {st.session_state.cases[0].ntotal}")
+                                else:
+                                    print(f"[ERROR] 索引维度不匹配! 索引维度: {st.session_state.cases[0].d}, 向量维度: {vec.shape[1]}")
+                                    # 重新创建索引
+                                    st.session_state.cases = (faiss.IndexFlatL2(1024), st.session_state.cases[1])
+                                    st.session_state.cases[0].add(embedder.encode([c["text"] for c in st.session_state.cases[1]]))
+                                
+                                # 3. 保存到磁盘
+                                DataManager.save(
+                                    st.session_state.cases[0],
+                                    st.session_state.cases[1],
+                                    PATHS['case_index'],
+                                    PATHS['case_data'],
+                                    is_json=True
+                                )
+                                print(f"[DEBUG] 判例已保存到磁盘")
 
                             # 训练集也使用校准后的 scores（建议把 master_comment 也写入训练集）
                             sys_p = st.session_state.prompt_config['system_template']
@@ -1160,6 +1191,7 @@ with tab3:
             with open(PATHS['prompt'], 'w') as f: json.dump(new_cfg, f, ensure_ascii=False)
 
             st.success("Prompt 已保存！"); time.sleep(1); st.rerun()
+
 
 
 
