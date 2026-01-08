@@ -796,23 +796,23 @@ with tab1:
                                 time.sleep(1)
                                 st.rerun()
     
-                            # ---- 3) 同时保留原“直接认可保存”快捷入口（可选）----
-                            st.markdown("---")
-                            if st.button("⚡ 直接认可模型评分并保存（不校准）"):
-                                new_case = {"text": user_input, "scores": s_dict, "tags": "交互生成-未校准"}
-                                st.session_state.cases[1].append(new_case)
+                                # ---- 3) 同时保留原“直接认可保存”快捷入口（可选）----
+                                st.markdown("---")
+                                if st.button("⚡ 直接认可模型评分并保存（不校准）"):
+                                    new_case = {"text": user_input, "scores": s_dict, "tags": "交互生成-未校准"}
+                                    st.session_state.cases[1].append(new_case)
+        
+                                    vec = embedder.encode([user_input])
+                                    st.session_state.cases[0].add(vec)
+                                    DataManager.save(st.session_state.cases[0], st.session_state.cases[1], PATHS['case_index'], PATHS['case_data'], is_json=True)
+        
+                                    sys_p = st.session_state.prompt_config['system_template']
+                                    DataManager.append_to_finetune(user_input, s_dict, sys_p, st.session_state.prompt_config['user_template'])
+        
+                                    st.success("已按模型原评分存档！")
+                                    time.sleep(1)
+                                    st.rerun()
     
-                                vec = embedder.encode([user_input])
-                                st.session_state.cases[0].add(vec)
-                                DataManager.save(st.session_state.cases[0], st.session_state.cases[1], PATHS['case_index'], PATHS['case_data'], is_json=True)
-    
-                                sys_p = st.session_state.prompt_config['system_template']
-                                DataManager.append_to_finetune(user_input, s_dict, sys_p, st.session_state.prompt_config['user_template'])
-    
-                                st.success("已按模型原评分存档！")
-                                time.sleep(1)
-                                st.rerun()
-
 
 # --- Tab 2: 批量评分 ---
 with tab2:
@@ -1185,6 +1185,7 @@ with tab3:
             with open(PATHS['prompt'], 'w') as f: json.dump(new_cfg, f, ensure_ascii=False)
 
             st.success("Prompt 已保存！"); time.sleep(1); st.rerun()
+
 
 
 
