@@ -785,12 +785,6 @@ with tab1:
                                     is_json=True
                                 )
                                 print(f"[DEBUG] 判例已保存到磁盘")
-
-                            # 训练集也使用校准后的 scores（建议把 master_comment 也写入训练集）
-                            sys_p = st.session_state.prompt_config['system_template']
-
-                            # 这里沿用 append_to_finetune，但它目前 master_comment 固定“（人工校准）”
-                            # 如果希望把 edited_master 写入训练集，建议升级 append_to_finetune
                             DataManager.append_to_finetune(
                                 user_input,
                                 edited_scores,
@@ -1191,6 +1185,7 @@ with tab3:
             with open(PATHS['prompt'], 'w') as f: json.dump(new_cfg, f, ensure_ascii=False)
 
             st.success("Prompt 已保存！"); time.sleep(1); st.rerun()
+
 
 
 
