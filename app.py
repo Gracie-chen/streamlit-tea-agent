@@ -661,9 +661,27 @@ st.markdown('<div class="slogan">“一片叶子落入水中，改变了水的�
 tab1, tab2, tab3 = st.tabs(["💡 交互评分", "🚀 批量评分", "🛠️ 模型调优"])
 # --- Tab 1: 交互评分 ---
 # --- Tab 1: 交互评分 ---
+# --- Tab 1: 交互评分 ---
 with tab1:
-    st.info("AI 将参考知识库与判例库进行评分。确认结果后将自动更新 RAG 库和后台微调数据。")
-    user_input = st.text_area("输入茶评描述:", height=120)
+    st.info("AI 将参考知识库与判例库进行评分。确认结果后将自动更新 RAG 库。")
+    
+    # 使用会话状态存储用户输入，避免刷新后丢失
+    if 'current_user_input' not in st.session_state:
+        st.session_state.current_user_input = ""
+    
+    user_input = st.text_area(
+        "输入茶评描述:", 
+        value=st.session_state.current_user_input,
+        height=120,
+        key="user_input_area"
+    )
+    st.session_state.current_user_input = user_input
+    
+    # 使用会话状态存储评分结果
+    if 'last_scores' not in st.session_state:
+        st.session_state.last_scores = None
+    if 'last_master_comment' not in st.session_state:
+        st.session_state.last_master_comment = ""
     
     if st.button("开始评分", type="primary", use_container_width=True):
         if not user_input or not client: 
@@ -675,141 +693,144 @@ with tab1:
                     st.session_state.prompt_config, embedder, client, model_id
                 )
                 if scores:
-                    mc = scores.get("master_comment", "暂无总评")
-                    st.markdown(f'<div class="master-comment"><b>👵 宗师总评：</b><br>{mc}</div>', unsafe_allow_html=True)
+                    # 保存评分结果到会话状态
+                    st.session_state.last_scores = scores
+                    st.session_state.last_master_comment = scores.get("master_comment", "暂无总评")
+                    # 使用rerun显示结果
+                    st.rerun()
+    
+    # 显示上次评分结果（如果有）
+    if st.session_state.last_scores is not None:
+        mc = st.session_state.last_master_comment
+        st.markdown(f'<div class="master-comment"><b>👵 宗师总评：</b><br>{mc}</div>', unsafe_allow_html=True)
+        
+        cols = st.columns(3)
+        factors = ["优雅性", "辨识度", "协调性", "饱和度", "持久性", "苦涩度"]
+        s_dict = st.session_state.last_scores.get("scores", {})
+        
+        for i, fname in enumerate(factors):
+            if fname in s_dict:
+                data = s_dict[fname]
+                with cols[i%3]:
+                    st.markdown(f"""<div class="factor-card"><div class="score-header"><span>{fname}</span><span>{data.get('score')}/9</span></div><div style="margin:5px 0; font-size:0.9em;">{data.get('comment')}</div><div class="advice-tag">💡 {data.get('suggestion','')}</div></div>""", unsafe_allow_html=True)
+        
+        # 简化的保存区域
+        with st.expander("📥 保存评分结果到判例库"):
+            st.write(f"当前判例库数量: **{len(st.session_state.cases[1])}** 条")
+            
+            # 方法1: 保存原始评分
+            if st.button("💾 保存原始评分", type="primary"):
+                try:
+                    # 创建新判例
+                    new_case = {
+                        "text": user_input,
+                        "scores": s_dict,
+                        "tags": "交互生成",
+                        "master_comment": mc,
+                        "created_at": time.strftime("%Y-%m-%d %H:%M:%S")
+                    }
                     
-                    cols = st.columns(3)
-                    factors = ["优雅性", "辨识度", "协调性", "饱和度", "持久性", "苦涩度"]
-                    s_dict = scores.get("scores", {})
+                    # 1. 添加到内存
+                    st.session_state.cases[1].append(new_case)
+                    new_count = len(st.session_state.cases[1])
                     
-                    for i, fname in enumerate(factors):
-                        if fname in s_dict:
-                            data = s_dict[fname]
-                            with cols[i%3]:
-                                st.markdown(f"""<div class="factor-card"><div class="score-header"><span>{fname}</span><span>{data.get('score')}/9</span></div><div style="margin:5px 0; font-size:0.9em;">{data.get('comment')}</div><div class="advice-tag">💡 {data.get('suggestion','')}</div></div>""", unsafe_allow_html=True)
-
-                    # 简化的保存部分 - 不用表单，只用按钮
-                    with st.expander("📥 认可此评分？可保存或修改评分结果！"):
-                        # 直接显示当前判例库数量
-                        st.write(f"**当前判例库数量:** {len(st.session_state.cases[1])} 条")
-                        
-                        # 简单按钮：保存原始评分
-                        if st.button("💾 保存原始评分到判例库"):
-                            try:
-                                # 创建新判例
-                                new_case = {
-                                    "text": user_input, 
-                                    "scores": s_dict, 
-                                    "tags": "交互生成",
-                                    "master_comment": mc,
-                                    "created_at": time.strftime("%Y-%m-%d %H:%M:%S")
-                                }
-                                
-                                # 添加到内存
-                                st.session_state.cases[1].append(new_case)
-                                
-                                # 生成向量
-                                vec = embedder.encode([user_input])
-                                
-                                # 添加到索引
-                                if st.session_state.cases[0].ntotal == 0 or st.session_state.cases[0].d == 1024:
-                                    st.session_state.cases[0].add(vec)
-                                else:
-                                    # 重新创建索引
-                                    new_index = faiss.IndexFlatL2(1024)
-                                    all_texts = [c["text"] for c in st.session_state.cases[1]]
-                                    all_vecs = embedder.encode(all_texts)
-                                    new_index.add(all_vecs)
-                                    st.session_state.cases = (new_index, st.session_state.cases[1])
-                                
-                                # 保存到磁盘
-                                DataManager.save(
-                                    st.session_state.cases[0],
-                                    st.session_state.cases[1],
-                                    PATHS['case_index'],
-                                    PATHS['case_data'],
-                                    is_json=True
-                                )
-                                
-                                st.success(f"✅ 保存成功！判例库现有 {len(st.session_state.cases[1])} 条判例。")
-                                st.balloons()
-                                
-                                # 等待后刷新
-                                time.sleep(2)
-                                st.rerun()
-                                
-                            except Exception as e:
-                                st.error(f"保存失败: {str(e)}")
-                                print(f"保存错误: {e}")
-                        
-                        # 提供校准功能（可选）
-                        st.markdown("---")
-                        st.markdown("#### ✍️ 如果需要校准，可修改以下分数：")
-                        
-                        # 创建可编辑的分数
-                        edited_scores = {}
-                        for f in factors:
-                            if f in s_dict:
-                                edited_score = st.number_input(
-                                    f"{f} 分数",
-                                    min_value=0,
-                                    max_value=9,
-                                    value=int(s_dict[f]["score"]),
-                                    key=f"cal_{f}_{time.time()}"
-                                )
-                                edited_scores[f] = {
-                                    "score": edited_score,
-                                    "comment": s_dict[f]["comment"],
-                                    "suggestion": s_dict[f]["suggestion"]
-                                }
-                        
-                        if st.button("💾 保存校准后评分到判例库"):
-                            try:
-                                # 创建新判例
-                                new_case = {
-                                    "text": user_input, 
-                                    "scores": edited_scores, 
-                                    "tags": "交互生成-已校准",
-                                    "master_comment": mc,
-                                    "created_at": time.strftime("%Y-%m-%d %H:%M:%S")
-                                }
-                                
-                                # 添加到内存
-                                st.session_state.cases[1].append(new_case)
-                                
-                                # 生成向量
-                                vec = embedder.encode([user_input])
-                                
-                                # 添加到索引
-                                if st.session_state.cases[0].ntotal == 0 or st.session_state.cases[0].d == 1024:
-                                    st.session_state.cases[0].add(vec)
-                                else:
-                                    # 重新创建索引
-                                    new_index = faiss.IndexFlatL2(1024)
-                                    all_texts = [c["text"] for c in st.session_state.cases[1]]
-                                    all_vecs = embedder.encode(all_texts)
-                                    new_index.add(all_vecs)
-                                    st.session_state.cases = (new_index, st.session_state.cases[1])
-                                
-                                # 保存到磁盘
-                                DataManager.save(
-                                    st.session_state.cases[0],
-                                    st.session_state.cases[1],
-                                    PATHS['case_index'],
-                                    PATHS['case_data'],
-                                    is_json=True
-                                )
-                                
-                                st.success(f"✅ 校准评分保存成功！判例库现有 {len(st.session_state.cases[1])} 条判例。")
-                                st.balloons()
-                                
-                                # 等待后刷新
-                                time.sleep(2)
-                                st.rerun()
-                                
-                            except Exception as e:
-                                st.error(f"保存失败: {str(e)}")
-                                print(f"保存错误: {e}")
+                    # 2. 生成向量
+                    vec = embedder.encode([user_input])
+                    
+                    # 3. 添加到向量索引
+                    # 检查索引状态
+                    if st.session_state.cases[0].ntotal == 0:
+                        # 如果索引为空，创建新索引
+                        st.session_state.cases = (faiss.IndexFlatL2(1024), st.session_state.cases[1])
+                        st.session_state.cases[0].add(vec)
+                    else:
+                        # 索引已存在，添加向量
+                        st.session_state.cases[0].add(vec)
+                    
+                    # 4. 保存到磁盘
+                    DataManager.save(
+                        st.session_state.cases[0],
+                        st.session_state.cases[1],
+                        PATHS['case_index'],
+                        PATHS['case_data'],
+                        is_json=True
+                    )
+                    
+                    st.success(f"✅ 保存成功！判例库现有 {new_count} 条判例。")
+                    
+                    # 显示确认信息
+                    st.info("保存详情：")
+                    st.write(f"✅ 已添加到内存列表")
+                    st.write(f"✅ 已生成并添加向量到索引")
+                    st.write(f"✅ 已保存到磁盘文件")
+                    
+                    # 不清除评分结果，保持显示
+                    time.sleep(2)
+                    
+                except Exception as e:
+                    st.error(f"保存失败: {str(e)}")
+                    import traceback
+                    st.code(traceback.format_exc())
+            
+            # 简单校准选项
+            st.markdown("---")
+            st.markdown("### 可选：校准评分")
+            
+            # 创建可编辑的分数
+            calibrated_scores = {}
+            for f in factors:
+                if f in s_dict:
+                    original_score = s_dict[f]["score"]
+                    calibrated_score = st.slider(
+                        f"{f} 分数",
+                        0, 9, original_score,
+                        key=f"slider_{f}"
+                    )
+                    calibrated_scores[f] = {
+                        "score": calibrated_score,
+                        "comment": s_dict[f]["comment"],
+                        "suggestion": s_dict[f]["suggestion"]
+                    }
+            
+            if st.button("💾 保存校准后评分"):
+                try:
+                    # 创建新判例
+                    new_case = {
+                        "text": user_input,
+                        "scores": calibrated_scores,
+                        "tags": "交互生成-已校准",
+                        "master_comment": mc,
+                        "created_at": time.strftime("%Y-%m-%d %H:%M:%S")
+                    }
+                    
+                    # 1. 添加到内存
+                    st.session_state.cases[1].append(new_case)
+                    new_count = len(st.session_state.cases[1])
+                    
+                    # 2. 生成向量
+                    vec = embedder.encode([user_input])
+                    
+                    # 3. 添加到向量索引
+                    if st.session_state.cases[0].ntotal == 0:
+                        st.session_state.cases = (faiss.IndexFlatL2(1024), st.session_state.cases[1])
+                        st.session_state.cases[0].add(vec)
+                    else:
+                        st.session_state.cases[0].add(vec)
+                    
+                    # 4. 保存到磁盘
+                    DataManager.save(
+                        st.session_state.cases[0],
+                        st.session_state.cases[1],
+                        PATHS['case_index'],
+                        PATHS['case_data'],
+                        is_json=True
+                    )
+                    
+                    st.success(f"✅ 校准评分保存成功！判例库现有 {new_count} 条判例。")
+                    time.sleep(2)
+                    
+                except Exception as e:
+                    st.error(f"保存失败: {str(e)}")
     # --- Tab 2: 批量评分 ---
     with tab2:
         up_file = st.file_uploader("上传文件 (支持 .txt / .docx)", type=['txt','docx'])
@@ -1181,6 +1202,7 @@ with tab1:
             with open(PATHS['prompt'], 'w') as f: json.dump(new_cfg, f, ensure_ascii=False)
 
             st.success("Prompt 已保存！"); time.sleep(1); st.rerun()
+
 
 
 
