@@ -813,46 +813,46 @@ with tab1:
                                     time.sleep(1)
                                     st.rerun()
     
-
-# --- Tab 2: 批量评分 ---
-with tab2:
-    up_file = st.file_uploader("上传文件 (支持 .txt / .docx)", type=['txt','docx'])
-    if up_file and st.button("开始批量处理"):
-        if not client: st.error("请配置 Key")
-        else:
-            txt = parse_file(up_file)
-            lines = [l.strip() for l in txt.split('\n') if len(l)>10]
-            results = []
-            bar = st.progress(0)
-            for i, line in enumerate(lines):
-                s, _, _ = run_scoring(line, st.session_state.kb, st.session_state.cases, st.session_state.prompt_config, embedder, client, model_id)
-                results.append({"id": i+1, "text": line, "scores": s})
-                bar.progress((i+1)/len(lines))
-            st.success("完成！")
-            doc_io = create_word_report(results)
-            st.download_button("📥 下载 Word 报告", doc_io, "茶评报告.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
-
-# --- Tab 3: 模型调优 (自动化微调流程) ---
-with tab3:
-    c1, c2, c3 = st.columns(3)
     
-    # Column 1: RAG 知识库
-    with c1:
-        st.subheader("📚 RAG 知识库")
-        files = st.file_uploader("上传PDF", accept_multiple_files=True, key="kb_up")
-        st.info(f"💾 当前存储: {len(st.session_state.kb[1])} 片段")
-        if files and st.button("更新知识库"):
-            if not embedder: st.error("需 API Key")
+    # --- Tab 2: 批量评分 ---
+    with tab2:
+        up_file = st.file_uploader("上传文件 (支持 .txt / .docx)", type=['txt','docx'])
+        if up_file and st.button("开始批量处理"):
+            if not client: st.error("请配置 Key")
             else:
-                with st.spinner("处理并存盘..."):
-                    raw = "".join([parse_file(f) for f in files])
-                    chunks = [raw[i:i+600] for i in range(0,len(raw),500)]
-                    vecs = embedder.encode(chunks)
-                    idx = faiss.IndexFlatL2(1024)
-                    idx.add(vecs)
-                    st.session_state.kb = (idx, chunks)
-                    DataManager.save(idx, chunks, PATHS['kb_index'], PATHS['kb_chunks'])
-                    st.success("知识库已更新！"); time.sleep(1); st.rerun()
+                txt = parse_file(up_file)
+                lines = [l.strip() for l in txt.split('\n') if len(l)>10]
+                results = []
+                bar = st.progress(0)
+                for i, line in enumerate(lines):
+                    s, _, _ = run_scoring(line, st.session_state.kb, st.session_state.cases, st.session_state.prompt_config, embedder, client, model_id)
+                    results.append({"id": i+1, "text": line, "scores": s})
+                    bar.progress((i+1)/len(lines))
+                st.success("完成！")
+                doc_io = create_word_report(results)
+                st.download_button("📥 下载 Word 报告", doc_io, "茶评报告.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+    
+    # --- Tab 3: 模型调优 (自动化微调流程) ---
+    with tab3:
+        c1, c2, c3 = st.columns(3)
+        
+        # Column 1: RAG 知识库
+        with c1:
+            st.subheader("📚 RAG 知识库")
+            files = st.file_uploader("上传PDF", accept_multiple_files=True, key="kb_up")
+            st.info(f"💾 当前存储: {len(st.session_state.kb[1])} 片段")
+            if files and st.button("更新知识库"):
+                if not embedder: st.error("需 API Key")
+                else:
+                    with st.spinner("处理并存盘..."):
+                        raw = "".join([parse_file(f) for f in files])
+                        chunks = [raw[i:i+600] for i in range(0,len(raw),500)]
+                        vecs = embedder.encode(chunks)
+                        idx = faiss.IndexFlatL2(1024)
+                        idx.add(vecs)
+                        st.session_state.kb = (idx, chunks)
+                        DataManager.save(idx, chunks, PATHS['kb_index'], PATHS['kb_chunks'])
+                        st.success("知识库已更新！"); time.sleep(1); st.rerun()
 
     # Column 2: 判例库 & 微调控制台
     with c2:
@@ -1185,6 +1185,7 @@ with tab3:
             with open(PATHS['prompt'], 'w') as f: json.dump(new_cfg, f, ensure_ascii=False)
 
             st.success("Prompt 已保存！"); time.sleep(1); st.rerun()
+
 
 
 
