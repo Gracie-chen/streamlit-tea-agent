@@ -1489,7 +1489,7 @@ with tab1:
         st.subheader("📊 风味可视化")
         
         # 创建布局：形态图
-        vis_col2 = st.columns(1) 
+        vis_col2 = st.columns(1) [0]
         with vis_col2:
             st.caption("三段风味形态 (Flavor Shape)")
             # 调用 visualization.py 绘制形态图
@@ -2042,6 +2042,7 @@ with tab1:
             with open(PATHS['prompt'], 'w') as f: json.dump(new_cfg, f, ensure_ascii=False)
 
             st.success("Prompt 已保存！"); time.sleep(1); st.rerun()
+
 
 
 
