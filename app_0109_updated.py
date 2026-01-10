@@ -1316,71 +1316,51 @@ def calculate_section_scores(scores):
     return top, mid, base
 
 # 风味形态图
-def plot_flavor_shape(scores_data):
+def plot_flavor_shape_compact(scores_data):
     """
-    绘制基于 '前中后' 三调的茶汤形态图 - 紧凑版本
+    超紧凑版本的风味形状图
     """
     top, mid, base = calculate_section_scores(scores_data)
     
-    # 1. 减小图表尺寸
-    fig, ax = plt.subplots(figsize=(2, 2.5))  # 改为更小的尺寸
+    # 非常小的尺寸
+    fig, ax = plt.subplots(figsize=(1.5, 2.0))
     fig.patch.set_alpha(0)
     ax.patch.set_alpha(0)
 
-    y = np.array([1, 2, 3]) 
-    x = np.array([base, mid, top])
+    # 简化数据
+    y_levels = [1.0, 1.6, 2.4, 3.0]
+    x_vals = [base, mid, top, top]
     
-    y_new = np.linspace(1, 3, 300)
-    try:
-        spl = make_interp_spline(y, x, k=2)
-        x_smooth = spl(y_new)
-    except:
-        x_smooth = np.interp(y_new, y, x)
+    # 直接绘制梯形区域，不使用插值
+    # 基础区域
+    ax.fill_betweenx([1.0, 1.6], -base, base, color='#8B4513', alpha=0.9)
+    # 中间区域
+    ax.fill_betweenx([1.6, 2.4], -mid, mid, color='#D2691E', alpha=0.85)
+    # 顶部区域
+    ax.fill_betweenx([2.4, 3.0], -top, top, color='#FFD700', alpha=0.8)
     
-    x_smooth = np.maximum(x_smooth, 0.1)
-
-    colors = {'base': '#8B4513', 'mid': '#D2691E', 'top': '#FFD700'}
+    # 分界线
+    ax.axhline(y=1.6, color='white', linestyle=':', alpha=0.5, linewidth=0.3)
+    ax.axhline(y=2.4, color='white', linestyle=':', alpha=0.5, linewidth=0.3)
     
-    # 2. 根据实际数据设置合适的x轴范围
-    # 计算最大x值，然后设置稍微大一点的边界
-    max_x_value = max(base, mid, top)
-    x_limit = max(max_x_value * 1.2, 5)  # 确保最小为5，避免太窄
-    
-    mask_base = (y_new >= 1.0) & (y_new <= 1.6)
-    ax.fill_betweenx(y_new[mask_base], -x_smooth[mask_base], x_smooth[mask_base], 
-                     color=colors['base'], alpha=0.9, edgecolor=None)
-    
-    mask_mid = (y_new > 1.6) & (y_new <= 2.4)
-    ax.fill_betweenx(y_new[mask_mid], -x_smooth[mask_mid], x_smooth[mask_mid], 
-                     color=colors['mid'], alpha=0.85, edgecolor=None)
-    
-    mask_top = (y_new > 2.4) & (y_new <= 3.0)
-    ax.fill_betweenx(y_new[mask_top], -x_smooth[mask_top], x_smooth[mask_top], 
-                     color=colors['top'], alpha=0.8, edgecolor=None)
-
-    # 3. 减小线宽
-    ax.plot(x_smooth, y_new, color='black', linewidth=0.6, alpha=0.2)
-    ax.plot(-x_smooth, y_new, color='black', linewidth=0.6, alpha=0.2)
-    
-    ax.axhline(y=1.6, color='white', linestyle=':', alpha=0.5, linewidth=0.5)
-    ax.axhline(y=2.4, color='white', linestyle=':', alpha=0.5, linewidth=0.5)
-    
-    # 4. 减小字体大小
-    font_style = {'ha': 'center', 'va': 'center', 'color': 'white', 'fontweight': 'bold', 'fontsize': 8}
+    # 更小的字体
+    font_style = {'ha': 'center', 'va': 'center', 'color': 'white', 'fontweight': 'bold', 'fontsize': 6}
     ax.text(0, 2.7, f"Top\n{top:.1f}", **font_style)
     ax.text(0, 2.0, f"Mid\n{mid:.1f}", **font_style)
     ax.text(0, 1.3, f"Base\n{base:.1f}", **font_style)
     
     ax.axis('off')
     
-    # 5. 使用动态计算的x轴范围，而不是固定的-10,10
-    ax.set_xlim(-x_limit, x_limit)
+    # 动态设置边界
+    max_val = max(base, mid, top)
+    ax.set_xlim(-max_val*1.3, max_val*1.3)
     ax.set_ylim(0.8, 3.2)
     
-    # 6. 使用紧密布局减少空白
-    plt.tight_layout(pad=0.1)
+    # 极致的紧密布局
+    plt.tight_layout(pad=0.05)
         
     return fig
+
 # ==========================================
 # 3. 页面初始化
 # ==========================================
@@ -2159,6 +2139,7 @@ with tab1:
             with open(PATHS['prompt'], 'w') as f: json.dump(new_cfg, f, ensure_ascii=False)
 
             st.success("Prompt 已保存！"); time.sleep(1); st.rerun()
+
 
 
 
