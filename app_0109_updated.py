@@ -15,8 +15,9 @@ import dashscope
 from dashscope import TextEmbedding
 from openai import OpenAI
 from docx import Document
-import visualization
-import logic
+import plotly.graph_objects as go
+import matplotlib.pyplot as plt
+from scipy.interpolate import make_interp_spline
 
 
 # ==========================================
@@ -1198,17 +1199,17 @@ SEED_CASES = [
 # ==========================================
 
 # 最核心的评分函数；流程：用户文本 → 向量检索 → RAG + 判例拼 Prompt → 调用模型 → 解析 JSON
-def run_scoring(text, kb_res, case_res, prompt_cfg, embedder, client, model_id): # 输入：茶评、知识库、案例库、prompt配置等
+def run_scoring(text, kb_res, case_res, prompt_cfg, embedder, client, model_id, k_num, c_num): # 输入：茶评、知识库、案例库、prompt配置等
     vec = embedder.encode([text]) # 文本通过阿里云embedder转为向量
     ctx_txt, hits = "（无手册资料）", [] # RAG初始
     if kb_res[0].ntotal > 0: # 如果RAG非空，找到最相似的3个片段
-        _, idx = kb_res[0].search(vec, 3)
+        _, idx = kb_res[0].search(vec, k_num)
         hits = [kb_res[1][i] for i in idx[0] if i < len(kb_res[1])]
         ctx_txt = "\n".join([f"- {h[:200]}..." for h in hits])
         
     case_txt, found_cases = "（无相似判例）", [] # 判例初始
     if case_res[0].ntotal > 0: # 如果判例库非空，找到最相似的2个片段
-        _, idx = case_res[0].search(vec, 2)
+        _, idx = case_res[0].search(vec, c_num)
         for i in idx[0]:
             if i < len(case_res[1]) and i >= 0:
                 c = case_res[1][i]
@@ -1272,6 +1273,7 @@ def create_word_report(results):
     bio.seek(0)
     return bio
 
+# 导入初始判例
 def bootstrap_seed_cases_if_empty(embedder):
     """
     Inject built-in SEED_CASES into case library
@@ -1304,6 +1306,68 @@ def bootstrap_seed_cases_if_empty(embedder):
         PATHS["case_data"],
         is_json=True
     )
+
+def calculate_section_scores(scores):
+    s = scores["scores"]   # ← 就这一行是关键
+    top  = (s["优雅性"]["score"] + s["辨识度"]["score"]) / 2
+    mid  = (s["协调性"]["score"] + s["饱和度"]["score"]) / 2
+    base = (s["持久性"]["score"] + s["苦涩度"]["score"]) / 2
+
+    return top, mid, base
+
+# 风味形态图
+def plot_flavor_shape(scores_data):
+    """
+    绘制基于 '前中后' 三调的茶汤形态图
+    """
+    top, mid, base = calculate_section_scores(scores_data)
+    
+    fig, ax = plt.subplots(figsize=(4, 5))
+    fig.patch.set_alpha(0)
+    ax.patch.set_alpha(0)
+
+    y = np.array([1, 2, 3]) 
+    x = np.array([base, mid, top])
+    
+    y_new = np.linspace(1, 3, 300)
+    try:
+        spl = make_interp_spline(y, x, k=2)
+        x_smooth = spl(y_new)
+    except:
+        x_smooth = np.interp(y_new, y, x)
+    
+    x_smooth = np.maximum(x_smooth, 0.1)
+
+    colors = {'base': '#8B4513', 'mid': '#D2691E', 'top': '#FFD700'}
+    
+    mask_base = (y_new >= 1.0) & (y_new <= 1.6)
+    ax.fill_betweenx(y_new[mask_base], -x_smooth[mask_base], x_smooth[mask_base], 
+                     color=colors['base'], alpha=0.9, edgecolor=None)
+    
+    mask_mid = (y_new > 1.6) & (y_new <= 2.4)
+    ax.fill_betweenx(y_new[mask_mid], -x_smooth[mask_mid], x_smooth[mask_mid], 
+                     color=colors['mid'], alpha=0.85, edgecolor=None)
+    
+    mask_top = (y_new > 2.4) & (y_new <= 3.0)
+    ax.fill_betweenx(y_new[mask_top], -x_smooth[mask_top], x_smooth[mask_top], 
+                     color=colors['top'], alpha=0.8, edgecolor=None)
+
+    ax.plot(x_smooth, y_new, color='black', linewidth=1, alpha=0.2)
+    ax.plot(-x_smooth, y_new, color='black', linewidth=1, alpha=0.2)
+    
+    ax.axhline(y=1.6, color='white', linestyle=':', alpha=0.5)
+    ax.axhline(y=2.4, color='white', linestyle=':', alpha=0.5)
+    
+    font_style = {'ha': 'center', 'va': 'center', 'color': 'white', 'fontweight': 'bold', 'fontsize': 12}
+    ax.text(0, 2.7, f"Top\n{top:.1f}", **font_style)
+    ax.text(0, 2.0, f"Mid\n{mid:.1f}", **font_style)
+    ax.text(0, 1.3, f"Base\n{base:.1f}", **font_style)
+    
+    ax.axis('off')
+    ax.set_xlim(-10, 10)
+    ax.set_ylim(0.8, 3.2)
+        
+    return fig
 
 # ==========================================
 # 3. 页面初始化
@@ -1433,6 +1497,24 @@ tab1, tab2, tab3 = st.tabs(["💡 交互评分", "🚀 批量评分", "🛠️ �
 with tab1:
     st.info("AI 将参考知识库与判例库进行评分。确认结果后将自动更新 RAG 库。")
     
+    col1, col2, col3, col4 = st.columns([1, 3, 3, 1])
+    with col2:
+        r_num = st.number_input(
+            "参考知识库条目数量",
+            min_value=1,
+            max_value=20,
+            value=3,
+            step=1
+        )
+    with col3:
+        c_num = st.number_input(
+            "参考判例库条目数量",
+            min_value=1,
+            max_value=20,
+            value=2,
+            step=1
+        )
+
     # 使用会话状态存储用户输入，避免刷新后丢失
     if 'current_user_input' not in st.session_state:
         st.session_state.current_user_input = ""
@@ -1458,7 +1540,7 @@ with tab1:
             with st.spinner(f"正在使用模型 {model_id} 品鉴..."):
                 scores, kb_hits, case_hits = run_scoring(
                     user_input, st.session_state.kb, st.session_state.cases,
-                    st.session_state.prompt_config, embedder, client, model_id
+                    st.session_state.prompt_config, embedder, client, model_id, r_num, c_num
                 )
                 if scores:
                     # 保存评分结果到会话状态
@@ -1487,13 +1569,13 @@ with tab1:
                     st.markdown(f"""<div class="factor-card"><div class="score-header"><span>{fname}</span><span>{data.get('score')}/9</span></div><div style="margin:5px 0; font-size:0.9em;">{data.get('comment')}</div><div class="advice-tag">💡 {data.get('suggestion','')}</div></div>""", unsafe_allow_html=True)
         
         st.subheader("📊 风味可视化")
-        
+
         # 创建布局：形态图
         vis_col2 = st.columns(1) [0]
         with vis_col2:
             st.caption("三段风味形态 (Flavor Shape)")
-            # 调用 visualization.py 绘制形态图
-            fig_shape = visualization.plot_flavor_shape(scores)
+            # 绘制形态图
+            fig_shape = plot_flavor_shape(scores)
             st.pyplot(fig_shape, use_container_width=True)
 
         # 完整的校准和保存区域
@@ -1674,6 +1756,23 @@ with tab1:
     # --- Tab 2: 批量评分 ---
     with tab2:
         up_file = st.file_uploader("上传文件 (支持 .txt / .docx)", type=['txt','docx'])
+        col1, col2, col3, col4 = st.columns([1, 3, 3, 1])
+        with col2:
+            r_num = st.number_input(
+                "参考知识库条目数量",
+                min_value=1,
+                max_value=20,
+                value=3,
+                step=1
+            )
+        with col3:
+            c_num = st.number_input(
+                "参考判例库条目数量",
+                min_value=1,
+                max_value=20,
+                value=2,
+                step=1
+            )
         if up_file and st.button("开始批量处理"):
             if not client: st.error("请配置 Key")
             else:
@@ -1682,7 +1781,7 @@ with tab1:
                 results = []
                 bar = st.progress(0)
                 for i, line in enumerate(lines):
-                    s, _, _ = run_scoring(line, st.session_state.kb, st.session_state.cases, st.session_state.prompt_config, embedder, client, model_id)
+                    s, _, _ = run_scoring(line, st.session_state.kb, st.session_state.cases, st.session_state.prompt_config, embedder, client, model_id, r_num, c_num)
                     results.append({"id": i+1, "text": line, "scores": s})
                     bar.progress((i+1)/len(lines))
                 st.success("完成！")
@@ -2042,29 +2141,6 @@ with tab1:
             with open(PATHS['prompt'], 'w') as f: json.dump(new_cfg, f, ensure_ascii=False)
 
             st.success("Prompt 已保存！"); time.sleep(1); st.rerun()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
