@@ -1317,64 +1317,58 @@ def calculate_section_scores(scores):
 
 # 风味形态图
 def plot_flavor_shape(scores_data):
+    def plot_flavor_shape(scores_data):
     """
     绘制基于 '前中后' 三调的茶汤形态图
     """
-    top, mid, base = calculate_settion_scores(scores_data)
+    top, mid, base = calculate_section_scores(scores_data)
     
-    # 方案1：最简单的解决方案 - 使用不同的方法创建对称可视化
-    fig, ax = plt.subplots(figsize=(1.8, 2.4))
+    fig, ax = plt.subplots(figsize=(4, 5))
     fig.patch.set_alpha(0)
     ax.patch.set_alpha(0)
+
+    y = np.array([1, 2, 3]) 
+    x = np.array([base, mid, top])
     
-    # 确保值是数值
+    y_new = np.linspace(1, 3, 300)
     try:
-        base_val = float(base) if base is not None else 0.5
-        mid_val = float(mid) if mid is not None else 0.7
-        top_val = float(top) if top is not None else 0.9
+        spl = make_interp_spline(y, x, k=2)
+        x_smooth = spl(y_new)
     except:
-        base_val, mid_val, top_val = 0.5, 0.7, 0.9
+        x_smooth = np.interp(y_new, y, x)
     
-    # 创建简化的锥形图 - 不使用set_xlim
-    # 直接使用fill_between创建对称形状
-    y_levels = [1.0, 1.6, 2.4, 3.0]
-    x_vals = [base_val, mid_val, top_val, top_val]
+    x_smooth = np.maximum(x_smooth, 0.1)
+
+    colors = {'base': '#8B4513', 'mid': '#D2691E', 'top': '#FFD700'}
     
-    # 创建对称的x值
-    x_left = [-x for x in x_vals]
-    x_right = x_vals
+    mask_base = (y_new >= 1.0) & (y_new <= 1.6)
+    ax.fill_betweenx(y_new[mask_base], -x_smooth[mask_base], x_smooth[mask_base], 
+                     color=colors['base'], alpha=0.9, edgecolor=None)
     
-    # 绘制填充区域 - 直接连接点
-    # 基础区域
-    ax.fill_between([1.0, 1.6], [-base_val, -mid_val], [base_val, mid_val], 
-                    color='#808513', alpha=0.9)
-    # 中间区域
-    ax.fill_between([1.6, 2.4], [-mid_val, -top_val], [mid_val, top_val], 
-                    color='#02691E', alpha=0.85)
-    # 顶部区域
-    ax.fill_between([2.4, 3.0], [-top_val, -top_val], [top_val, top_val], 
-                    color='#FF0700', alpha=0.8)
+    mask_mid = (y_new > 1.6) & (y_new <= 2.4)
+    ax.fill_betweenx(y_new[mask_mid], -x_smooth[mask_mid], x_smooth[mask_mid], 
+                     color=colors['mid'], alpha=0.85, edgecolor=None)
     
-    # 绘制轮廓线
-    ax.plot([base_val, mid_val, top_val, top_val], [1.0, 1.6, 2.4, 3.0], 
-            color='black', linewidth=0.8, alpha=0.2)
-    ax.plot([-base_val, -mid_val, -top_val, -top_val], [1.0, 1.6, 2.4, 3.0], 
-            color='black', linewidth=0.8, alpha=0.2)
+    mask_top = (y_new > 2.4) & (y_new <= 3.0)
+    ax.fill_betweenx(y_new[mask_top], -x_smooth[mask_top], x_smooth[mask_top], 
+                     color=colors['top'], alpha=0.8, edgecolor=None)
+
+    ax.plot(x_smooth, y_new, color='black', linewidth=1, alpha=0.2)
+    ax.plot(-x_smooth, y_new, color='black', linewidth=1, alpha=0.2)
     
-    # 绘制参考线
-    ax.axhline(y=1.6, color='white', linestyle=':', alpha=0.5, linewidth=0.5)
-    ax.axhline(y=2.4, color='white', linestyle=':', alpha=0.5, linewidth=0.5)
+    ax.axhline(y=1.6, color='white', linestyle=':', alpha=0.5)
+    ax.axhline(y=2.4, color='white', linestyle=':', alpha=0.5)
     
-    # 隐藏所有坐标轴元素
-    ax.set_axis_off()
+    font_style = {'ha': 'center', 'va': 'center', 'color': 'white', 'fontweight': 'bold', 'fontsize': 12}
+    ax.text(0, 2.7, f"Top\n{top:.1f}", **font_style)
+    ax.text(0, 2.0, f"Mid\n{mid:.1f}", **font_style)
+    ax.text(0, 1.3, f"Base\n{base:.1f}", **font_style)
     
-    # 不使用set_xlim，让matplotlib自动调整
-    # 如果需要，可以启用自动缩放
-    # ax.autoscale(tight=True)
-    
-    # 显示图表
-    st.pyplot(fig)
-    plt.close(fig)    
+    ax.axis('off')
+    ax.set_xlim(-10, 10)
+    ax.set_ylim(0.8, 3.2)
+        
+    return fig
 
 # ==========================================
 # 3. 页面初始化
@@ -2154,6 +2148,7 @@ with tab1:
             with open(PATHS['prompt'], 'w') as f: json.dump(new_cfg, f, ensure_ascii=False)
 
             st.success("Prompt 已保存！"); time.sleep(1); st.rerun()
+
 
 
 
