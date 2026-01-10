@@ -1369,6 +1369,15 @@ def plot_flavor_shape(scores_data):
     ax.spines['right'].set_visible(False)
     ax.spines['bottom'].set_visible(False)
     ax.spines['left'].set_visible(False)
+    
+    # 修正错误：set_xLim → set_xlim
+    # 设置边界（注意方法名是小写）
+    if len(x) > 0 and max(x) > 0:
+        ax.set_xlim(-max(x)*1.1, max(x)*1.1)
+    else:
+        ax.set_xlim(-1, 1)  # 默认边界
+        
+    ax.set_ylim(0.9, 3.1)
     return fig
 # 设置边界
 ax.set_xlim(-max(x)*1.1, max(x)*1.1)
@@ -2152,6 +2161,7 @@ with tab1:
             with open(PATHS['prompt'], 'w') as f: json.dump(new_cfg, f, ensure_ascii=False)
 
             st.success("Prompt 已保存！"); time.sleep(1); st.rerun()
+
 
 
 
