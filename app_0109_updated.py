@@ -1422,7 +1422,7 @@ with st.sidebar:
                     
                     st.success("✅ RAG 数据导入成功！")
                     st.rerun()
-st.markdown('<div class="main-title">🍵 茶饮六因子 AI 评分器 Pro</div>', unsafe_allow_html=True)
+st.markdown('<div class="main-title">🍵 茶品六因子 AI 评分器 Pro</div>', unsafe_allow_html=True)
 st.markdown('<div class="slogan">“一片叶子落入水中，改变了水的味道...”</div>', unsafe_allow_html=True)
 
 # ==========================================
@@ -2042,6 +2042,7 @@ with tab1:
             with open(PATHS['prompt'], 'w') as f: json.dump(new_cfg, f, ensure_ascii=False)
 
             st.success("Prompt 已保存！"); time.sleep(1); st.rerun()
+
 
 
 
