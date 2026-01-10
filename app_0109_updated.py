@@ -1320,7 +1320,6 @@ def plot_flavor_shape(scores_data):
     """
     绘制基于 '前中后' 三调的茶汤形态图
     """
-
     top, mid, base = calculate_settion_scores(scores_data)
     
     # 方案1：最简单的解决方案 - 使用不同的方法创建对称可视化
@@ -1375,11 +1374,7 @@ def plot_flavor_shape(scores_data):
     
     # 显示图表
     st.pyplot(fig)
-    plt.close(fig)
-    return fig
-# 设置边界
-ax.set_xlim(-max(x)*1.1, max(x)*1.1)
-ax.set_ylim(0.9, 3.1)
+    plt.close(fig)    
 
 # ==========================================
 # 3. 页面初始化
@@ -2159,6 +2154,7 @@ with tab1:
             with open(PATHS['prompt'], 'w') as f: json.dump(new_cfg, f, ensure_ascii=False)
 
             st.success("Prompt 已保存！"); time.sleep(1); st.rerun()
+
 
 
 
