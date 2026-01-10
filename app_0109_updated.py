@@ -1322,7 +1322,7 @@ def plot_flavor_shape(scores_data):
     """
     top, mid, base = calculate_section_scores(scores_data)
     
-    fig, ax = plt.subplots(figsize=(3, 4))
+    fig, ax = plt.subplots(figsize=(1.5, 2))
     fig.patch.set_alpha(0)
     ax.patch.set_alpha(0)
 
@@ -2147,6 +2147,7 @@ with tab1:
             with open(PATHS['prompt'], 'w') as f: json.dump(new_cfg, f, ensure_ascii=False)
 
             st.success("Prompt 已保存！"); time.sleep(1); st.rerun()
+
 
 
 
