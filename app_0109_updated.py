@@ -1318,11 +1318,12 @@ def calculate_section_scores(scores):
 # 风味形态图
 def plot_flavor_shape(scores_data):
     """
-    绘制基于 '前中后' 三调的茶汤形态图
+    绘制基于 '前中后' 三调的茶汤形态图 - 紧凑版本
     """
     top, mid, base = calculate_section_scores(scores_data)
     
-    fig, ax = plt.subplots(figsize=(4, 5))
+    # 1. 减小图表尺寸
+    fig, ax = plt.subplots(figsize=(2, 2.5))  # 改为更小的尺寸
     fig.patch.set_alpha(0)
     ax.patch.set_alpha(0)
 
@@ -1340,6 +1341,11 @@ def plot_flavor_shape(scores_data):
 
     colors = {'base': '#8B4513', 'mid': '#D2691E', 'top': '#FFD700'}
     
+    # 2. 根据实际数据设置合适的x轴范围
+    # 计算最大x值，然后设置稍微大一点的边界
+    max_x_value = max(base, mid, top)
+    x_limit = max(max_x_value * 1.2, 5)  # 确保最小为5，避免太窄
+    
     mask_base = (y_new >= 1.0) & (y_new <= 1.6)
     ax.fill_betweenx(y_new[mask_base], -x_smooth[mask_base], x_smooth[mask_base], 
                      color=colors['base'], alpha=0.9, edgecolor=None)
@@ -1352,20 +1358,27 @@ def plot_flavor_shape(scores_data):
     ax.fill_betweenx(y_new[mask_top], -x_smooth[mask_top], x_smooth[mask_top], 
                      color=colors['top'], alpha=0.8, edgecolor=None)
 
-    ax.plot(x_smooth, y_new, color='black', linewidth=1, alpha=0.2)
-    ax.plot(-x_smooth, y_new, color='black', linewidth=1, alpha=0.2)
+    # 3. 减小线宽
+    ax.plot(x_smooth, y_new, color='black', linewidth=0.6, alpha=0.2)
+    ax.plot(-x_smooth, y_new, color='black', linewidth=0.6, alpha=0.2)
     
-    ax.axhline(y=1.6, color='white', linestyle=':', alpha=0.5)
-    ax.axhline(y=2.4, color='white', linestyle=':', alpha=0.5)
+    ax.axhline(y=1.6, color='white', linestyle=':', alpha=0.5, linewidth=0.5)
+    ax.axhline(y=2.4, color='white', linestyle=':', alpha=0.5, linewidth=0.5)
     
-    font_style = {'ha': 'center', 'va': 'center', 'color': 'white', 'fontweight': 'bold', 'fontsize': 12}
+    # 4. 减小字体大小
+    font_style = {'ha': 'center', 'va': 'center', 'color': 'white', 'fontweight': 'bold', 'fontsize': 8}
     ax.text(0, 2.7, f"Top\n{top:.1f}", **font_style)
     ax.text(0, 2.0, f"Mid\n{mid:.1f}", **font_style)
     ax.text(0, 1.3, f"Base\n{base:.1f}", **font_style)
     
     ax.axis('off')
-    ax.set_xlim(-10, 10)
+    
+    # 5. 使用动态计算的x轴范围，而不是固定的-10,10
+    ax.set_xlim(-x_limit, x_limit)
     ax.set_ylim(0.8, 3.2)
+    
+    # 6. 使用紧密布局减少空白
+    plt.tight_layout(pad=0.1)
         
     return fig
 # ==========================================
@@ -2146,6 +2159,7 @@ with tab1:
             with open(PATHS['prompt'], 'w') as f: json.dump(new_cfg, f, ensure_ascii=False)
 
             st.success("Prompt 已保存！"); time.sleep(1); st.rerun()
+
 
 
 
