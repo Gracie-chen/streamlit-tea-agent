@@ -1344,7 +1344,7 @@ def plot_flavor_shape(scores_data):
     # 2. 根据实际数据设置合适的x轴范围
     # 计算最大x值，然后设置稍微大一点的边界
     max_x_value = max(base, mid, top)
-    x_limit = max(max_x_value * 1.2, 5)  # 确保最小为5，避免太窄
+    x_limit = max(max_x_value * 1.2, 3)  # 确保最小为5，避免太窄
     
     mask_base = (y_new >= 1.0) & (y_new <= 1.6)
     ax.fill_betweenx(y_new[mask_base], -x_smooth[mask_base], x_smooth[mask_base], 
@@ -2160,6 +2160,7 @@ with tab1:
             with open(PATHS['prompt'], 'w') as f: json.dump(new_cfg, f, ensure_ascii=False)
 
             st.success("Prompt 已保存！"); time.sleep(1); st.rerun()
+
 
 
 
