@@ -1320,13 +1320,17 @@ def plot_flavor_shape(scores_data):
     """
     绘制基于 '前中后' 三调的茶汤形态图
     """
-    top, mid, base = calculate_section_scores(scores_data)
+    top, mid, base = calculate_settion_scores(scores_data)
     
-    fig, ax = plt.subplots(figsize=(1.5, 2))
+    # 创建更小的图形，使用紧密布局
+    fig, ax = plt.subplots(figsize=(1.8, 2.4))
     fig.patch.set_alpha(0)
     ax.patch.set_alpha(0)
-
-    y = np.array([1, 2, 3]) 
+    
+    # 设置紧凑的布局，减少四周空白
+    fig.tight_layout(pad=0.1)
+    
+    y = np.array([1, 2, 3])
     x = np.array([base, mid, top])
     
     y_new = np.linspace(1, 3, 300)
@@ -1337,37 +1341,38 @@ def plot_flavor_shape(scores_data):
         x_smooth = np.interp(y_new, y, x)
     
     x_smooth = np.maximum(x_smooth, 0.1)
-
-    colors = {'base': '#8B4513', 'mid': '#D2691E', 'top': '#FFD700'}
+    
+    colors = {'base': '#808513', 'mid': '#02691E', 'top': '#FF0700'}
     
     mask_base = (y_new >= 1.0) & (y_new <= 1.6)
-    ax.fill_betweenx(y_new[mask_base], -x_smooth[mask_base], x_smooth[mask_base], 
-                     color=colors['base'], alpha=0.9, edgecolor=None)
+    ax.fill_between(y_new[mask_base], -x_smooth[mask_base], x_smooth[mask_base],
+        color=colors['base'], alpha=0.9, edgecolor=None)
     
     mask_mid = (y_new > 1.6) & (y_new <= 2.4)
-    ax.fill_betweenx(y_new[mask_mid], -x_smooth[mask_mid], x_smooth[mask_mid], 
-                     color=colors['mid'], alpha=0.85, edgecolor=None)
+    ax.fill_between(y_new[mask_mid], -x_smooth[mask_mid], x_smooth[mask_mid],
+        color=colors['mid'], alpha=0.85, edgecolor=None)
     
     mask_top = (y_new > 2.4) & (y_new <= 3.0)
-    ax.fill_betweenx(y_new[mask_top], -x_smooth[mask_top], x_smooth[mask_top], 
-                     color=colors['top'], alpha=0.8, edgecolor=None)
-
-    ax.plot(x_smooth, y_new, color='black', linewidth=1, alpha=0.2)
-    ax.plot(-x_smooth, y_new, color='black', linewidth=1, alpha=0.2)
+    ax.fill_between(y_new[mask_top], -x_smooth[mask_top], x_smooth[mask_top],
+        color=colors['top'], alpha=0.8, edgecolor=None)
     
-    ax.axhline(y=1.6, color='white', linestyle=':', alpha=0.5)
-    ax.axhline(y=2.4, color='white', linestyle=':', alpha=0.5)
+    ax.plot(x_smooth, y_new, color='black', linewidth=0.8, alpha=0.2)
+    ax.plot(-x_smooth, y_new, color='black', linewidth=0.8, alpha=0.2)
     
-    font_style = {'ha': 'center', 'va': 'center', 'color': 'white', 'fontweight': 'bold', 'fontsize': 12}
-    ax.text(0, 2.7, f"Top\n{top:.1f}", **font_style)
-    ax.text(0, 2.0, f"Mid\n{mid:.1f}", **font_style)
-    ax.text(0, 1.3, f"Base\n{base:.1f}", **font_style)
+    ax.axhline(y=1.6, color='white', linestyle=':', alpha=0.5, linewidth=0.5)
+    ax.axhline(y=2.4, color='white', linestyle=':', alpha=0.5, linewidth=0.5)
     
-    ax.axis('off')
-    ax.set_xlim(-10, 10)
-    ax.set_ylim(0.8, 3.2)
-        
-    return fig
+    # 隐藏坐标轴
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.spines['bottom'].set_visible(False)
+    ax.spines['left'].set_visible(False)
+return fig
+# 设置边界
+ax.set_xlim(-max(x)*1.1, max(x)*1.1)
+ax.set_ylim(0.9, 3.1)
 
 # ==========================================
 # 3. 页面初始化
@@ -2147,6 +2152,7 @@ with tab1:
             with open(PATHS['prompt'], 'w') as f: json.dump(new_cfg, f, ensure_ascii=False)
 
             st.success("Prompt 已保存！"); time.sleep(1); st.rerun()
+
 
 
 
