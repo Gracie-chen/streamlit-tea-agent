@@ -76,7 +76,7 @@ def plot_flavor_shape(scores_data):
     """
     top, mid, base = calculate_section_scores(scores_data)
     
-    fig, ax = plt.subplots(figsize=(4, 5))
+    fig, ax = plt.subplots(figsize=(6, 4))
     fig.patch.set_alpha(0)
     ax.patch.set_alpha(0)
 
@@ -118,7 +118,9 @@ def plot_flavor_shape(scores_data):
     ax.text(0, 1.3, f"Base\n{base:.1f}", **font_style)
     
     ax.axis('off')
-    ax.set_xlim(-10, 10)
+    max_val = max(top, mid, base)
+    ax.set_xlim(-max_val * 1.3, max_val * 1.3)
     ax.set_ylim(0.8, 3.2)
         
+
     return fig
