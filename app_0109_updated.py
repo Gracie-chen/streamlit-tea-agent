@@ -16,7 +16,6 @@ from dashscope import TextEmbedding
 from openai import OpenAI
 from docx import Document
 
-import visualization
 import logic
 
 # ==========================================
@@ -2042,6 +2041,7 @@ with tab1:
             with open(PATHS['prompt'], 'w') as f: json.dump(new_cfg, f, ensure_ascii=False)
 
             st.success("Prompt 已保存！"); time.sleep(1); st.rerun()
+
 
 
 
