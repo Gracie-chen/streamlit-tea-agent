@@ -1320,45 +1320,75 @@ def plot_flavor_shape(scores_data):
     """
     绘制基于 '前中后' 三调的茶汤形态图
     """
+
     top, mid, base = calculate_settion_scores(scores_data)
     
-    # 创建更小的图形，使用紧密布局
+    # 添加调试信息，检查数据
+    print(f"Debug - base: {base}, type: {type(base)}")
+    print(f"Debug - mid: {mid}, type: {type(mid)}")
+    print(f"Debug - top: {top}, type: {type(top)}")
+    
+    # 确保所有值都是数值类型
+    try:
+        base = float(base) if base is not None else 0.1
+        mid = float(mid) if mid is not None else 0.1
+        top = float(top) if top is not None else 0.1
+    except (ValueError, TypeError) as e:
+        print(f"Error converting values: {e}")
+        base, mid, top = 0.1, 0.1, 0.1
+    
+    # 创建图形
     fig, ax = plt.subplots(figsize=(1.8, 2.4))
     fig.patch.set_alpha(0)
     ax.patch.set_alpha(0)
     
-    # 设置紧凑的布局，减少四周空白
+    # 设置紧凑的布局
     fig.tight_layout(pad=0.1)
     
+    # 准备数据
     y = np.array([1, 2, 3])
     x = np.array([base, mid, top])
     
+    print(f"Debug - x array: {x}")
+    
+    # 平滑处理
     y_new = np.linspace(1, 3, 300)
     try:
         spl = make_interp_spline(y, x, k=2)
         x_smooth = spl(y_new)
-    except:
+    except Exception as e:
+        print(f"Debug - Spline error: {e}, using linear interpolation")
         x_smooth = np.interp(y_new, y, x)
     
+    # 确保最小正值
     x_smooth = np.maximum(x_smooth, 0.1)
+    
+    print(f"Debug - x_smooth min: {np.min(x_smooth)}, max: {np.max(x_smooth)}")
     
     colors = {'base': '#808513', 'mid': '#02691E', 'top': '#FF0700'}
     
+    # 绘制填充区域
     mask_base = (y_new >= 1.0) & (y_new <= 1.6)
-    ax.fill_between(y_new[mask_base], -x_smooth[mask_base], x_smooth[mask_base],
-        color=colors['base'], alpha=0.9, edgecolor=None)
+    if np.any(mask_base):
+        ax.fill_between(y_new[mask_base], -x_smooth[mask_base], x_smooth[mask_base],
+            color=colors['base'], alpha=0.9, edgecolor=None)
     
     mask_mid = (y_new > 1.6) & (y_new <= 2.4)
-    ax.fill_between(y_new[mask_mid], -x_smooth[mask_mid], x_smooth[mask_mid],
-        color=colors['mid'], alpha=0.85, edgecolor=None)
+    if np.any(mask_mid):
+        ax.fill_between(y_new[mask_mid], -x_smooth[mask_mid], x_smooth[mask_mid],
+            color=colors['mid'], alpha=0.85, edgecolor=None)
     
     mask_top = (y_new > 2.4) & (y_new <= 3.0)
-    ax.fill_between(y_new[mask_top], -x_smooth[mask_top], x_smooth[mask_top],
-        color=colors['top'], alpha=0.8, edgecolor=None)
+    if np.any(mask_top):
+        ax.fill_between(y_new[mask_top], -x_smooth[mask_top], x_smooth[mask_top],
+            color=colors['top'], alpha=0.8, edgecolor=None)
     
-    ax.plot(x_smooth, y_new, color='black', linewidth=0.8, alpha=0.2)
-    ax.plot(-x_smooth, y_new, color='black', linewidth=0.8, alpha=0.2)
+    # 绘制轮廓线
+    if len(x_smooth) > 0:
+        ax.plot(x_smooth, y_new, color='black', linewidth=0.8, alpha=0.2)
+        ax.plot(-x_smooth, y_new, color='black', linewidth=0.8, alpha=0.2)
     
+    # 绘制参考线
     ax.axhline(y=1.6, color='white', linestyle=':', alpha=0.5, linewidth=0.5)
     ax.axhline(y=2.4, color='white', linestyle=':', alpha=0.5, linewidth=0.5)
     
@@ -1370,14 +1400,25 @@ def plot_flavor_shape(scores_data):
     ax.spines['bottom'].set_visible(False)
     ax.spines['left'].set_visible(False)
     
-    # 修正错误：set_xLim → set_xlim
-    # 设置边界（注意方法名是小写）
-    if len(x) > 0 and max(x) > 0:
-        ax.set_xlim(-max(x)*1.1, max(x)*1.1)
-    else:
-        ax.set_xlim(-1, 1)  # 默认边界
-        
-    ax.set_ylim(0.9, 3.1)
+    # 安全地设置边界
+    try:
+        if len(x_smooth) > 0:
+            x_max = np.max(np.abs(x_smooth))
+            if x_max > 0:
+                x_limit = x_max * 1.1
+            else:
+                x_limit = 1.0  # 默认值
+        else:
+            x_limit = 1.0  # 默认值
+            
+        print(f"Debug - Setting xlim to [-{x_limit}, {x_limit}]")
+        ax.set_xlim(-x_limit, x_limit)
+        ax.set_ylim(0.9, 3.1)
+    except Exception as e:
+        print(f"Error setting limits: {e}")
+        # 如果仍然出错，设置默认边界
+        ax.set_xlim(-1, 1)
+        ax.set_ylim(0.9, 3.1)
     return fig
 # 设置边界
 ax.set_xlim(-max(x)*1.1, max(x)*1.1)
@@ -2161,6 +2202,7 @@ with tab1:
             with open(PATHS['prompt'], 'w') as f: json.dump(new_cfg, f, ensure_ascii=False)
 
             st.success("Prompt 已保存！"); time.sleep(1); st.rerun()
+
 
 
 
