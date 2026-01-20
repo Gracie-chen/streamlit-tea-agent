@@ -2166,7 +2166,7 @@ Step 5：列出帮助提升茶饮评分的建议（suggestion）。
 {context_text}
 
 【历史判例参考（案例库）】
-{case_txt}
+{case_text}
 
 请严格输出以下JSON格式（不含Markdown）：
 {{
@@ -3149,6 +3149,7 @@ with tab1:
             with open(PATHS['prompt'], 'w') as f: json.dump(new_cfg, f, ensure_ascii=False)
 
             st.success("Prompt 已保存！"); time.sleep(1); st.rerun()
+
 
 
 
