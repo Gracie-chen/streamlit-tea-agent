@@ -1541,6 +1541,7 @@ with tab1:
         height=120,
         key="user_input_area"
     )
+    user_input = llm_normalize_user_input(user_input, client)
     st.session_state.current_user_input = user_input
     
     # 使用会话状态存储评分结果
@@ -2160,6 +2161,7 @@ with tab1:
             with open(PATHS['prompt'], 'w') as f: json.dump(new_cfg, f, ensure_ascii=False)
 
             st.success("Prompt 已保存！"); time.sleep(1); st.rerun()
+
 
 
 
