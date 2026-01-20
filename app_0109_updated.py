@@ -1976,35 +1976,34 @@ class DataManager:
 
 # 一层薄封装，把embedding API 包成一个统一的 encode() 方法
 class AliyunEmbedder:
-    def __init__(self, api_key):
-        self.model_name = "text-embedding-v4"
-        dashscope.api_key = api_key 
-    
+    def __init__(self, model_name):
+        self.model_name = model_name
+        self.embedding_cache = {}
+
     def encode(self, texts):
         if isinstance(texts, str):
             texts = [texts]
-    
+
         cache_key = "|".join(texts)
-    
         if cache_key in self.embedding_cache:
             return self.embedding_cache[cache_key]
-    
+
         resp = TextEmbedding.call(
             model=self.model_name,
             input=texts
         )
-    
+
         if resp.status_code != HTTPStatus.OK:
             raise RuntimeError(resp)
-    
+
         vecs = np.array(
             [i["embedding"] for i in resp.output["embeddings"]],
             dtype="float32"
         )
-    
+
         self.embedding_cache[cache_key] = vecs
         return vecs
-    
+
     
     
 
@@ -3199,6 +3198,7 @@ with tab1:
             with open(PATHS['prompt'], 'w') as f: json.dump(new_cfg, f, ensure_ascii=False)
 
             st.success("Prompt 已保存！"); time.sleep(1); st.rerun()
+
 
 
 
