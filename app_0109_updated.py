@@ -19,7 +19,7 @@ import plotly.graph_objects as go
 import matplotlib.pyplot as plt
 from scipy.interpolate import make_interp_spline
 
- SEED_CASES = []  # 或者删除这行，在函数中直接使用默认值
+SEED_CASES = []  # 或者删除这行，在函数中直接使用默认值
 
 # ==========================================
 # 0. 基础配置与持久化路径
@@ -1310,6 +1310,7 @@ with tab1:
             with open(PATHS['prompt'], 'w') as f: json.dump(new_cfg, f, ensure_ascii=False)
 
             st.success("Prompt 已保存！"); time.sleep(1); st.rerun()
+
 
 
 
