@@ -1957,7 +1957,7 @@ class DataManager:
                     data = json.load(f) if is_json else pickle.load(f)
                 return index, data
             except: pass
-        return faiss.IndexFlatL2(1024), [] # 这里括号内的1024是由于text-embedding是1024维的，如果更换embedding模型则需要一起调整。
+        return faiss.IndexFlatIP(1024), [] # 这里括号内的1024是由于text-embedding是1024维的，如果更换embedding模型则需要一起调整。
     
     @staticmethod
     def save_ft_status(job_id, status, fine_tuned_model=None):
@@ -2278,9 +2278,11 @@ def bootstrap_seed_cases_if_empty(embedder):
 
     # 确保 index 是空的、维度正确
     if case_idx.ntotal == 0 and case_idx.d == 1024:
+        faiss.normalize_L2(vecs)    
         case_idx.add(vecs)
     else:
         case_idx = faiss.IndexFlatL2(1024)
+        faiss.normalize_L2(vecs)  
         case_idx.add(vecs)
 
     case_data.extend(SEED_CASES)
@@ -3179,6 +3181,7 @@ with tab1:
             with open(PATHS['prompt'], 'w') as f: json.dump(new_cfg, f, ensure_ascii=False)
 
             st.success("Prompt 已保存！"); time.sleep(1); st.rerun()
+
 
 
 
