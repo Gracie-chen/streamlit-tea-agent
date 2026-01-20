@@ -3143,7 +3143,8 @@ with tab1:
             if test_text:
                 # 1. 生成向量
                 test_vec = embedder.encode([test_text])
-                
+                faiss.normalize_L2(test_vec) 
+              
                 # 2. 显示向量信息
                 st.write(f"测试向量形状: {test_vec.shape}")
                 st.write(f"向量范数: {np.linalg.norm(test_vec)}")
@@ -3151,6 +3152,7 @@ with tab1:
                 # 3. 搜索判例库
                 if st.session_state.cases[0].ntotal > 0:
                     distances, indices = st.session_state.cases[0].search(test_vec, 5)
+                    st.write(f"匹配度: {dist:.2%}")
                     st.write("搜索结果:")
                     st.write(f"最近距离: {distances[0]}")
                     st.write(f"最近索引: {indices[0]}")
@@ -3181,6 +3183,7 @@ with tab1:
             with open(PATHS['prompt'], 'w') as f: json.dump(new_cfg, f, ensure_ascii=False)
 
             st.success("Prompt 已保存！"); time.sleep(1); st.rerun()
+
 
 
 
