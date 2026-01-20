@@ -3131,7 +3131,37 @@ with tab1:
                 with st.expander(f"#{case_count-i} {c.get('tags','')}"):
                     st.write(c['text'][:50]+"...")
                     st.json(c['scores'])
-
+     # 在Tab3的判例库部分添加
+    with c2:
+        st.markdown("#### 🧪 判例库测试")
+        
+        test_text = st.text_input("测试文本（应与判例完全一致）:")
+        
+        if st.button("🔍 测试判例搜索"):
+            if test_text:
+                # 1. 生成向量
+                test_vec = embedder.encode([test_text])
+                
+                # 2. 显示向量信息
+                st.write(f"测试向量形状: {test_vec.shape}")
+                st.write(f"向量范数: {np.linalg.norm(test_vec)}")
+                
+                # 3. 搜索判例库
+                if st.session_state.cases[0].ntotal > 0:
+                    distances, indices = st.session_state.cases[0].search(test_vec, 5)
+                    st.write("搜索结果:")
+                    st.write(f"最近距离: {distances[0]}")
+                    st.write(f"最近索引: {indices[0]}")
+                    
+                    # 4. 显示前3个相似判例
+                    for i, (dist, idx) in enumerate(zip(distances[0][:3], indices[0][:3])):
+                        if idx >= 0 and idx < len(st.session_state.cases[1]):
+                            case = st.session_state.cases[1][idx]
+                            st.write(f"**第{i+1}相似 (距离={dist:.4f}):**")
+                            st.write(f"判例文本: {case['text'][:100]}...")
+                            st.write(f"匹配度: {1/(1+dist):.2%}")
+                else:
+                    st.error("判例库索引为空！")
     # Column 3: Prompt
     with c3:
         st.subheader("📝 Prompt 提示词模板")
@@ -3149,6 +3179,7 @@ with tab1:
             with open(PATHS['prompt'], 'w') as f: json.dump(new_cfg, f, ensure_ascii=False)
 
             st.success("Prompt 已保存！"); time.sleep(1); st.rerun()
+
 
 
 
