@@ -19,6 +19,7 @@ import plotly.graph_objects as go
 import matplotlib.pyplot as plt
 from scipy.interpolate import make_interp_spline
 
+ SEED_CASES = []  # 或者删除这行，在函数中直接使用默认值
 
 # ==========================================
 # 0. 基础配置与持久化路径
@@ -579,7 +580,6 @@ with st.sidebar:
         st.info(f"🎉 已检测到微调模型：`{ft_model}`（当前未启用）")
 
     model_id = model_name   # model_id 和 model_name在此处（deepseek）是一样的 model_id kept for future extension (e.g., switching to fine-tuned model), currently fixed.
-    SEED_CASES = []  # 或者删除这行，在函数中直接使用默认值
 
     embedder = AliyunEmbedder(aliyun_key)
     client = OpenAI(api_key=deepseek_key, base_url="https://api.deepseek.com")
@@ -1310,6 +1310,7 @@ with tab1:
             with open(PATHS['prompt'], 'w') as f: json.dump(new_cfg, f, ensure_ascii=False)
 
             st.success("Prompt 已保存！"); time.sleep(1); st.rerun()
+
 
 
 
